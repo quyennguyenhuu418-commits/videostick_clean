@@ -125,12 +125,9 @@ def refine_with_audio_durations(scenes: List[Scene], silence_padding: float = 0.
     """
     cursor = 0.0
     for sc in scenes:
-        if sc.audio_path is not None and sc.audio_path.exists():
-            # Su dung do dai audio thuc (giay). Module ben ngoai se set gia tri nay
-            # thong qua audio_duration neu can.
-            audio_dur = getattr(sc, "audio_duration", None)
-            if isinstance(audio_dur, (int, float)) and audio_dur > 0:
-                sc.duration = float(audio_dur)
+        # Use actual TTS audio duration if available and valid
+        if isinstance(sc.audio_duration, (int, float)) and sc.audio_duration > 0:
+            sc.duration = float(sc.audio_duration)
         sc.start_time = cursor
         sc.end_time = cursor + sc.duration
         cursor = sc.end_time + silence_padding

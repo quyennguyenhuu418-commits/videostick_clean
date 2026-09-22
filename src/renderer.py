@@ -353,7 +353,6 @@ def render_final(
         "-pix_fmt", pix_fmt,
         "-c:a", acodec,
         "-b:a", audio_bitrate,
-        "-shortest",
         str(output_path),
     ]
 

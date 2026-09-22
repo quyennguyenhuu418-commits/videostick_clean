@@ -31,6 +31,7 @@ class Scene:
     text: str                     # Noi dung kich ban
     duration: float = 0.0         # Thoi luong (giay), se tinh o buoc sau
     audio_path: Optional[Path] = None  # File WAV/TTS sau khi sinh
+    audio_duration: float = 0.0   # Do dai audio TTS that (giay), cap nhat sau TTS
     ken_burns_direction: str = "zoom_in"
     start_time: float = 0.0       # Thoi diem bat dau trong video tong
     end_time: float = 0.0         # Thoi diem ket thuc
