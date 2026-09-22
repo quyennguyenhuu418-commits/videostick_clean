@@ -42,6 +42,10 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23,7 16,12 23,17"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
                 Video da render
             </button>
+            <button class="tab" data-tab="shorts">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2" width="12" height="20" rx="2"/><polygon points="10,7 16,12 10,17" fill="currentColor" stroke="none"/></svg>
+                YouTube Shorts
+            </button>
         </nav>
 
         <!-- Tab Content -->
@@ -367,6 +371,79 @@
                             <polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none"/>
                         </svg>
                         <p>Chua co video nao duoc render.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===== TAB: YouTube Shorts ===== -->
+            <section class="tab-panel" id="tab-shorts">
+                <div class="panel-header">
+                    <h2>YouTube Shorts — Auto Cut 9:16</h2>
+                    <div class="panel-actions">
+                        <button class="btn btn-outline" id="refreshShortsBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="23,4 23,10 17,10"/><polyline points="1,20 1,14 7,14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                            Tai lai
+                        </button>
+                    </div>
+                </div>
+
+                <div class="shorts-picker">
+                    <label for="shortsSourceVideo" style="display:block;margin-bottom:6px;font-weight:600">Video nguon (tu "Video da render"):</label>
+                    <select id="shortsSourceVideo" class="form-select" style="max-width:520px"></select>
+                    <button class="btn btn-primary" id="analyzeShortsBtn" style="margin-left:8px">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        Phan tich SRT
+                    </button>
+                </div>
+
+                <div id="shortsAnalyzeStatus" class="shorts-status" style="display:none"></div>
+
+                <div id="shortsSuggestions" class="shorts-suggestions" style="display:none">
+                    <h3>Goi y Shorts tu SRT</h3>
+                    <p class="shorts-hint">Tick cac segment muon cat, hoac bat <strong>Auto</strong> de tu dong chon top <span id="numAutoLabel">3</span> segment diem cao nhat.</p>
+                    <div class="shorts-controls">
+                        <label class="toggle-row">
+                            <input type="checkbox" id="shortsBurnSubtitle" checked>
+                            <span class="toggle-slider"></span>
+                            <span>Burn subtitle vao short</span>
+                        </label>
+                        <label style="display:inline-flex;align-items:center;gap:6px;margin-left:16px">
+                            So auto:
+                            <input type="number" id="shortsNumAuto" value="3" min="1" max="10" style="width:60px" class="form-input">
+                        </label>
+                        <label style="display:inline-flex;align-items:center;gap:6px;margin-left:16px">
+                            CRF:
+                            <select id="shortsCRF" class="form-select" style="width:auto">
+                                <option value="20">20 (cao)</option>
+                                <option value="23" selected>23 (can bang)</option>
+                                <option value="26">26 (nho)</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <div class="shorts-actions">
+                        <button class="btn btn-primary" id="renderSelectedShortsBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="5,3 19,12 5,21" fill="currentColor" stroke="none"/></svg>
+                            Cat cac segment da chon
+                        </button>
+                        <button class="btn btn-outline" id="renderAutoShortsBtn">
+                            Auto-cut (top N)
+                        </button>
+                    </div>
+
+                    <div id="shortsList" class="shorts-list"></div>
+                </div>
+
+                <div id="shortsRenderStatus" class="shorts-status" style="display:none"></div>
+
+                <h3 style="margin-top:32px">Shorts da render (output/shorts/)</h3>
+                <div class="outputs-grid" id="shortsOutputsGrid">
+                    <div class="output-empty" id="shortsEmpty">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+                            <rect x="6" y="2" width="12" height="20" rx="2"/>
+                            <polygon points="10,7 16,12 10,17" fill="currentColor" stroke="none"/>
+                        </svg>
+                        <p>Chua co short nao.</p>
                     </div>
                 </div>
             </section>

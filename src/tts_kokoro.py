@@ -47,7 +47,7 @@ KOKORO_VOICES = {
     "bm_george":  "British male, trầm trung (documentary)",
     "bm_lewis":   "British male, sang trọng (lifestyle/business)",
     "bm_daniel":  "British male, ấm",
-    "bm_fable":   "British male, kể chuyện",
+    "bm_fable":   "British male, kễ chuyện",
 }
 
 DEFAULT_MODEL_NAME = "kokoro-v1.0.onnx"

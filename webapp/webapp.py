@@ -25,11 +25,35 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
+# Ensure project_root is on sys.path so src.* imports work
+_PROJECT_ROOT_FOR_PATH = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT_FOR_PATH) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT_FOR_PATH))
+
 # ---------- App setup ----------
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["UPLOAD_FOLDER"] = "webapp/uploads"
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
+app.config["JSON_AS_ASCII"] = False  # Giữ UTF-8 cho tieng Viet
+
+# Custom JSON provider de dam bao UTF-8 khong bi escape
+from flask.json.provider import DefaultJSONProvider
+
+class UTF8JSONProvider(DefaultJSONProvider):
+    """JSON provider luon xuat UTF-8 thay vi escape Unicode."""
+    ensure_ascii = False
+    sort_keys = False
+
+    def dumps(self, obj, **kwargs):
+        kwargs.setdefault("ensure_ascii", False)
+        kwargs.setdefault("sort_keys", False)
+        # DefaultJSONProvider dumps mac dinh dung self.ensure_ascii
+        text = super().dumps(obj, **kwargs)
+        # Dam bao khong bi escape Unicode
+        return text
+
+app.json = UTF8JSONProvider(app)
 
 # ---------- Logging ----------
 
@@ -86,6 +110,25 @@ def render_progress(session_id: str) -> Generator[Dict[str, Any], None, None]:
                 text = log_file.read_text(encoding="utf-8", errors="ignore")
                 lines = text.splitlines()
 
+                # Kiem tra HOAN THANH truoc (uu tien cao nhat)
+                if "HOAN THANH" in text:
+                    for line in lines:
+                        if "Video:" in line and ".mp4" in line:
+                            parts = line.split("Video:")
+                            if len(parts) > 1:
+                                path_part = parts[1].strip()
+                                for part in path_part.split():
+                                    if ".mp4" in part:
+                                        yield {"type": "complete", "filename": Path(part).name}
+                                        return  # DONG stream
+
+                # Kiem tra LOI truoc (uu tien cao)
+                if "LOI" in text or "[ERROR]" in text or "[LOI]" in text.upper():
+                    for line in reversed(lines):
+                        if "LOI" in line or "ERROR" in line or "[LOI]" in line.upper():
+                            yield {"type": "error", "message": line.strip()[-300:]}
+                            return  # DONG stream
+
                 # Estimate progress
                 progress = 5
                 for line in lines:
@@ -103,27 +146,6 @@ def render_progress(session_id: str) -> Generator[Dict[str, Any], None, None]:
                         break
 
                 yield {"type": "progress", "percent": progress, "detail": detail}
-
-                if "HOAN THANH" in text:
-                    # Extract output path
-                    for line in lines:
-                        if "Video:" in line and ".mp4" in line:
-                            parts = line.split("Video:")
-                            if len(parts) > 1:
-                                path_part = parts[1].strip()
-                                # Extract just the filename
-                                for part in path_part.split():
-                                    if ".mp4" in part:
-                                        yield {"type": "complete", "filename": Path(part).name}
-                                        break
-                    yield {"type": "complete", "percent": 100}
-                    return
-
-                if "LOI" in text or "[ERROR]" in text or "[LOI]" in text.upper():
-                    for line in reversed(lines):
-                        if "LOI" in line or "ERROR" in line or "[LOI]" in line.upper():
-                            yield {"type": "error", "message": line.strip()[-300:]}
-                            return
 
             except Exception:
                 pass
@@ -287,6 +309,23 @@ def start_render():
             ext = Path(secure_filename(f.filename)).suffix or ".jpg"
             dest = images_dir / f"Scene_{idx:03d}_1080p{ext}"
             f.save(str(dest))
+
+    # Auto-rewrite script refs neu user khong them _1080p
+    # Pipeline dang yeu cau [Scene_001_1080p.jpg], nhung user nhap [Scene_001.jpg]
+    # -> Tu dong them _1080p vao cac ref co dang [Scene_NNN.jpg] (khong co suffix)
+    if script_file.exists():
+        try:
+            txt = script_file.read_text(encoding="utf-8")
+            import re as _re
+            # Match [Scene_NNN.jpg] (khong co _1080p)
+            txt = _re.sub(
+                r"\[(Scene_\d{3,})(\.jpg|\.jpeg|\.png|\.webp|\.bmp)\]",
+                lambda m: f"[{m.group(1)}_1080p{m.group(2)}]",
+                txt,
+            )
+            script_file.write_text(txt, encoding="utf-8")
+        except Exception:
+            pass
 
     # Music
     if "music_file" in files:
@@ -489,6 +528,223 @@ def cleanup():
 @app.route("/api/ping", methods=["GET"])
 def ping():
     return jsonify({"ok": True, "version": "1.0.0"})
+
+
+# ---------- Shorts (YouTube Shorts auto-cutter) ----------
+
+def _get_video_srt_pair(video_name: str, project_root: Path):
+    """Tim file video + SRT tuong ung (video trong output/, SRT cung thu muc)."""
+    if not video_name or "/" in video_name or "\\" in video_name or ".." in video_name:
+        return None
+    video_path = project_root / "output" / video_name
+    if not video_path.exists() or not video_path.is_file():
+        return None
+    if not video_name.lower().endswith(".mp4"):
+        return None
+    srt_path = project_root / "output" / "subtitles.srt"
+    if not srt_path.exists():
+        return None
+    return video_path, srt_path
+
+
+@app.route("/api/shorts/analyze", methods=["POST"])
+def shorts_analyze():
+    """Phan tich SRT tu video da render de goi y cac short segments."""
+    data = request.get_json() or {}
+    video_name = data.get("video", "").strip()
+    project_root = Path(__file__).resolve().parent.parent
+
+    pair = _get_video_srt_pair(video_name, project_root)
+    if not pair:
+        return jsonify({
+            "ok": False,
+            "error": (
+                "Khong tim thay video hoac SRT tuong ung. "
+                "Can render video truoc va dam bao co file subtitles.srt trong output/."
+            ),
+        }), 404
+
+    video_path, srt_path = pair
+    try:
+        from src.shorts_maker import parse_srt, suggest_shorts
+        cues = parse_srt(srt_path)
+        suggestions = suggest_shorts(cues)
+        total_cues = len(cues)
+        total_video_sec = cues[-1].end if cues else 0.0
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", str(video_path)],
+                capture_output=True, text=True, encoding="utf-8", errors="ignore",
+            )
+            video_duration = float(result.stdout.strip() or 0)
+        except Exception:
+            video_duration = total_video_sec
+        return jsonify({
+            "ok": True,
+            "video": video_name,
+            "video_duration": video_duration,
+            "total_cues": total_cues,
+            "suggestions": [
+                {
+                    "start": s.start,
+                    "end": s.end,
+                    "duration": s.duration,
+                    "score": s.score,
+                    "cue_count": s.cue_count,
+                    "has_hook": s.has_hook,
+                    "preview": s.text_preview,
+                }
+                for s in suggestions
+            ],
+        })
+    except Exception as e:
+        log.exception("Shorts analyze failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/shorts/render", methods=["POST"])
+def shorts_render():
+    """Cat video thanh 1 hoac nhieu short (9:16 <= 60s) cho YouTube Shorts."""
+    data = request.get_json() or {}
+    video_name = data.get("video", "").strip()
+    selections = data.get("selections") or []
+    auto = bool(data.get("auto", False))
+    num_auto = int(data.get("num_auto", 3))
+    burn_subtitle = bool(data.get("burn_subtitle", True))
+    crf = int(data.get("crf", 23))
+    preset = str(data.get("preset", "medium"))
+
+    project_root = Path(__file__).resolve().parent.parent
+    pair = _get_video_srt_pair(video_name, project_root)
+    if not pair:
+        return jsonify({"ok": False, "error": f"Khong tim thay video: '{video_name}'"}), 404
+    video_path, srt_path = pair
+
+    # Validate selections
+    clean_selections = []
+    for sel in selections:
+        if not isinstance(sel, (list, tuple)) or len(sel) < 2:
+            continue
+        try:
+            s, e = float(sel[0]), float(sel[1])
+            if e - s < 1.0 or e - s > 60.5:
+                continue
+            clean_selections.append((s, e))
+        except (ValueError, TypeError):
+            continue
+
+    if not clean_selections and not auto:
+        return jsonify({
+            "ok": False,
+            "error": "Hay chon it nhat 1 segment, hoac bat che do auto-generate.",
+        }), 400
+
+    shorts_dir = project_root / "output" / "shorts"
+    shorts_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from src.shorts_maker import cut_shorts
+        results = cut_shorts(
+            video_path=video_path,
+            srt_path=srt_path,
+            output_dir=shorts_dir,
+            selections=clean_selections if not auto else None,
+            auto_generate=auto,
+            num_auto=num_auto,
+            crf=crf,
+            preset=preset,
+            burn_subtitle=burn_subtitle,
+            font="Inter",
+            font_size=64,
+        )
+    except Exception as e:
+        log.exception("Shorts render failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    out_list = []
+    for r in results:
+        size = 0
+        if r.output_path.exists():
+            size = r.output_path.stat().st_size
+        duration = r.suggestion.duration
+        if r.success:
+            try:
+                import subprocess
+                prb = subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                     "-of", "csv=p=0", str(r.output_path)],
+                    capture_output=True, text=True, encoding="utf-8", errors="ignore",
+                )
+                duration = float(prb.stdout.strip() or duration)
+            except Exception:
+                pass
+        out_list.append({
+            "filename": r.output_path.name,
+            "path": str(r.output_path),
+            "size": size,
+            "duration": duration,
+            "start": r.suggestion.start,
+            "end": r.suggestion.end,
+            "success": r.success,
+            "error": r.error,
+        })
+
+    return jsonify({"ok": True, "shorts": out_list})
+
+
+def _safe_short_filename(filename: str):
+    """Kiem tra filename an toan va nam trong shorts dir."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return False
+    if not filename.lower().endswith(".mp4"):
+        return False
+    project_root = Path(__file__).resolve().parent.parent
+    return project_root / "output" / "shorts" / filename
+
+
+@app.route("/api/shorts/download/<path:filename>", methods=["GET"])
+def shorts_download(filename: str):
+    """Download 1 short da render."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return jsonify({"ok": False, "error": "Ten file khong hop le"}), 400
+    project_root = Path(__file__).resolve().parent.parent
+    shorts_dir = project_root / "output" / "shorts"
+    file_path = shorts_dir / filename
+    if not file_path.exists():
+        return jsonify({"ok": False, "error": "Khong tim thay file"}), 404
+    return send_from_directory(str(shorts_dir), filename, as_attachment=True)
+
+
+@app.route("/api/shorts/preview/<path:filename>", methods=["GET"])
+def shorts_preview(filename: str):
+    """Stream 1 short da render (inline)."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return jsonify({"ok": False, "error": "Ten file khong hop le"}), 400
+    project_root = Path(__file__).resolve().parent.parent
+    shorts_dir = project_root / "output" / "shorts"
+    file_path = shorts_dir / filename
+    if not file_path.exists():
+        return jsonify({"ok": False, "error": "Khong tim thay file"}), 404
+    return send_from_directory(str(shorts_dir), filename)
+
+
+@app.route("/api/shorts/list", methods=["GET"])
+def shorts_list():
+    """Tra ve danh sach short da render (trong output/shorts/)."""
+    project_root = Path(__file__).resolve().parent.parent
+    shorts_dir = project_root / "output" / "shorts"
+    if not shorts_dir.exists():
+        return jsonify({"ok": True, "files": []})
+    files = []
+    for f in sorted(shorts_dir.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True):
+        files.append({
+            "name": f.name,
+            "size": f.stat().st_size,
+            "modified": f.stat().st_mtime,
+        })
+    return jsonify({"ok": True, "files": files})
 
 
 # ---------- Entry point ----------

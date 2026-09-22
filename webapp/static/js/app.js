@@ -7,6 +7,14 @@ const state = {
   images: [],   // { file, preview, name }
   script: "",
   config: {},
+  // Shorts state
+  shorts: {
+    sourceVideo: null,
+    suggestions: [],
+    analyzing: false,
+    rendering: false,
+    lastResults: [],
+  },
 };
 
 // ===== API helpers =====
@@ -42,6 +50,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initSettings();
   initOutputs();
   initRender();
+  initShorts();
   loadConfig();
   loadOutputs();
   pingServer();
@@ -711,6 +720,276 @@ async function pingServer() {
     setStatus("ready", "San sang");
   } catch {
     setStatus("error", "Server chua bat");
+  }
+}
+
+// ===== Shorts =====
+function initShorts() {
+  document.getElementById("refreshShortsBtn").addEventListener("click", () => {
+    loadShortsSourceVideos();
+    loadShortsOutputs();
+  });
+  document.getElementById("analyzeShortsBtn").addEventListener("click", analyzeShorts);
+  document.getElementById("renderSelectedShortsBtn").addEventListener("click", () => renderShorts(false));
+  document.getElementById("renderAutoShortsBtn").addEventListener("click", () => renderShorts(true));
+  document.getElementById("shortsNumAuto").addEventListener("input", e => {
+    document.getElementById("numAutoLabel").textContent = e.target.value;
+  });
+  loadShortsSourceVideos();
+  loadShortsOutputs();
+}
+
+async function loadShortsSourceVideos() {
+  try {
+    const data = await api("/api/outputs");
+    const sel = document.getElementById("shortsSourceVideo");
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = "";
+    if (!data.files || data.files.length === 0) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "(chua co video nao)";
+      sel.appendChild(opt);
+      return;
+    }
+    for (const f of data.files) {
+      const opt = document.createElement("option");
+      opt.value = f.name;
+      opt.textContent = `${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB)`;
+      sel.appendChild(opt);
+    }
+    if (current && Array.from(sel.options).some(o => o.value === current)) {
+      sel.value = current;
+    }
+    state.shorts.sourceVideo = sel.value;
+  } catch (e) {
+    console.warn("loadShortsSourceVideos:", e);
+  }
+}
+
+function setShortsStatus(msg, kind = "info") {
+  const el = document.getElementById("shortsAnalyzeStatus");
+  if (!msg) {
+    el.style.display = "none";
+    el.textContent = "";
+    return;
+  }
+  el.style.display = "block";
+  el.className = "shorts-status " + kind;
+  el.textContent = msg;
+}
+
+function setShortsRenderStatus(msg, kind = "info") {
+  const el = document.getElementById("shortsRenderStatus");
+  if (!msg) {
+    el.style.display = "none";
+    el.textContent = "";
+    return;
+  }
+  el.style.display = "block";
+  el.className = "shorts-status " + kind;
+  el.textContent = msg;
+}
+
+function fmtTime(sec) {
+  sec = Math.max(0, sec);
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  const ms = Math.floor((sec - Math.floor(sec)) * 1000);
+  return `${m}:${s.toString().padStart(2, "0")}.${ms.toString().padStart(3, "0")}`;
+}
+
+async function analyzeShorts() {
+  const sel = document.getElementById("shortsSourceVideo");
+  const video = sel.value;
+  if (!video) {
+    setShortsStatus("Hay chon video nguon truoc.", "error");
+    return;
+  }
+  state.shorts.sourceVideo = video;
+  state.shorts.analyzing = true;
+  setShortsStatus("Dang phan tich SRT...", "info");
+  document.getElementById("analyzeShortsBtn").disabled = true;
+  try {
+    const data = await api("/api/shorts/analyze", {
+      method: "POST",
+      body: { video },
+    });
+    state.shorts.analyzing = false;
+    document.getElementById("analyzeShortsBtn").disabled = false;
+    if (!data.ok) {
+      setShortsStatus("Loi: " + (data.error || "unknown"), "error");
+      return;
+    }
+    state.shorts.suggestions = data.suggestions || [];
+    if (data.suggestions.length === 0) {
+      setShortsStatus(
+        `Video ${data.video_duration.toFixed(0)}s, ${data.total_cues} subtitle cue - khong co segment >= 15s. Hay them noi dung hoac tang do dai.`,
+        "error"
+      );
+      document.getElementById("shortsSuggestions").style.display = "none";
+      return;
+    }
+    setShortsStatus(
+      `Phan tich ${data.total_cues} cue, goi y duoc ${data.suggestions.length} segment short (video ${data.video_duration.toFixed(0)}s).`,
+      "success"
+    );
+    renderShortsSuggestions();
+    document.getElementById("shortsSuggestions").style.display = "block";
+  } catch (e) {
+    state.shorts.analyzing = false;
+    document.getElementById("analyzeShortsBtn").disabled = false;
+    setShortsStatus("Loi: " + e.message, "error");
+  }
+}
+
+function renderShortsSuggestions() {
+  const list = document.getElementById("shortsList");
+  list.innerHTML = "";
+  state.shorts.suggestions.forEach((s, idx) => {
+    const div = document.createElement("div");
+    div.className = "shorts-item";
+    div.innerHTML = `
+      <input type="checkbox" data-idx="${idx}" checked>
+      <div class="shorts-item-main">
+        <div class="shorts-item-time">${fmtTime(s.start)} -> ${fmtTime(s.end)} (${s.duration.toFixed(1)}s)</div>
+        <div class="shorts-item-preview">${escapeHtml(s.preview)}</div>
+        <div class="shorts-item-meta">
+          <span>${s.cue_count} cue</span>
+          ${s.has_hook ? '<span class="hook-tag">co hook</span>' : ""}
+          <span>score ${s.score}</span>
+        </div>
+      </div>
+    `;
+    div.querySelector("input").addEventListener("change", e => {
+      div.classList.toggle("selected", e.target.checked);
+    });
+    list.appendChild(div);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
+async function renderShorts(auto) {
+  const video = state.shorts.sourceVideo;
+  if (!video) {
+    setShortsRenderStatus("Hay chon video nguon truoc.", "error");
+    return;
+  }
+  let selections = [];
+  if (!auto) {
+    const checked = document.querySelectorAll('#shortsList input[type=checkbox]:checked');
+    if (checked.length === 0) {
+      setShortsRenderStatus("Hay tick it nhat 1 segment hoac chon Auto.", "error");
+      return;
+    }
+    checked.forEach(cb => {
+      const idx = parseInt(cb.dataset.idx, 10);
+      const s = state.shorts.suggestions[idx];
+      selections.push([s.start, s.end]);
+    });
+  }
+  const burnSubtitle = document.getElementById("shortsBurnSubtitle").checked;
+  const numAuto = parseInt(document.getElementById("shortsNumAuto").value, 10) || 3;
+  const crf = parseInt(document.getElementById("shortsCRF").value, 10) || 23;
+
+  state.shorts.rendering = true;
+  document.getElementById("renderSelectedShortsBtn").disabled = true;
+  document.getElementById("renderAutoShortsBtn").disabled = true;
+  setShortsRenderStatus(`Dang cat ${auto ? numAuto + " short (auto)" : selections.length + " short"}...`, "info");
+
+  try {
+    const result = await api("/api/shorts/render", {
+      method: "POST",
+      body: {
+        video,
+        selections: auto ? [] : selections,
+        auto,
+        num_auto: numAuto,
+        burn_subtitle: burnSubtitle,
+        crf,
+        preset: "medium",
+      },
+    });
+    if (!result.ok) {
+      setShortsRenderStatus("Loi: " + (result.error || "unknown"), "error");
+      return;
+    }
+    const ok_count = result.shorts.filter(s => s.success).length;
+    const err_count = result.shorts.length - ok_count;
+    setShortsRenderStatus(
+      `Hoan tat! ${ok_count}/${result.shorts.length} short OK${err_count ? `, ${err_count} loi` : ""}.`,
+      err_count ? "error" : "success"
+    );
+    state.shorts.lastResults = result.shorts;
+    loadShortsOutputs();
+  } catch (e) {
+    setShortsRenderStatus("Loi: " + e.message, "error");
+  } finally {
+    state.shorts.rendering = false;
+    document.getElementById("renderSelectedShortsBtn").disabled = false;
+    document.getElementById("renderAutoShortsBtn").disabled = false;
+  }
+}
+
+async function loadShortsOutputs() {
+  try {
+    const data = await api("/api/shorts/list");
+    const grid = document.getElementById("shortsOutputsGrid");
+    const empty = document.getElementById("shortsEmpty");
+    grid.querySelectorAll(".output-card").forEach(c => c.remove());
+
+    if (!data.files || data.files.length === 0) {
+      if (empty) empty.style.display = "";
+      return;
+    }
+    if (empty) empty.style.display = "none";
+
+    for (const f of data.files) {
+      const card = document.createElement("div");
+      card.className = "output-card";
+      const sizeMB = (f.size / 1024 / 1024).toFixed(1);
+      const date = new Date(f.modified * 1000).toLocaleString("vi-VN");
+      const thumbId = `shorthumb-${f.name.replace(/\W/g, "")}`;
+      card.innerHTML = `
+        <div class="output-thumb">
+          <video id="${thumbId}" class="video-placeholder" preload="none" playsinline>
+            <source src="/api/shorts/preview/${encodeURIComponent(f.name)}" type="video/mp4">
+          </video>
+        </div>
+        <div class="output-info">
+          <div class="output-name">${f.name}</div>
+          <div class="output-meta">
+            <span class="output-size">${sizeMB} MB</span>
+            <div class="output-actions">
+              <button class="btn btn-outline btn-sm download-btn" data-filename="${f.name}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Tai
+              </button>
+              <button class="btn btn-outline btn-sm play-btn" data-thumb="${thumbId}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polygon points="5,3 19,12 5,21" fill="currentColor" stroke="none"/></svg>
+                Xem
+              </button>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${date}</div>
+        </div>
+      `;
+      card.querySelector(".download-btn").addEventListener("click", () => {
+        window.location.href = `/api/shorts/download/${encodeURIComponent(f.name)}`;
+      });
+      card.querySelector(".play-btn").addEventListener("click", () => {
+        const thumb = document.getElementById(thumbId);
+        if (thumb.paused) thumb.play();
+        else { thumb.pause(); thumb.currentTime = 0; }
+      });
+      grid.appendChild(card);
+    }
+  } catch (e) {
+    console.warn("loadShortsOutputs:", e);
   }
 }
 
