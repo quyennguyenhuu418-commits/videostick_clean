@@ -1,0 +1,15 @@
+# Core
+PyYAML>=6.0.1
+
+# TTS local
+piper-tts>=1.2.0
+onnxruntime>=1.16.0
+
+# Audio processing
+pydub>=0.25.1
+
+# Image utilities (optional, for pre-processing)
+Pillow>=10.0.0
+
+# Subtitle / time helpers
+srt>=3.5.0

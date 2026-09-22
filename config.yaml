@@ -1,0 +1,105 @@
+# VideoStick Configuration
+# File cấu hình chính của pipeline render video storytelling.
+
+# Đường dẫn thư mục (tương đối so với project root)
+paths:
+  input_images: "input/images"
+  input_script: "input/script.txt"
+  output_dir: "output"
+  temp_dir: "temp"
+  logs_dir: "logs"
+  voice_model: "assets/voices"        # Thư mục chứa Piper voice .onnx + .onnx.json
+  music_dir: "assets/music"           # Thư mục chứa background music
+  fonts_dir: "assets/fonts"           # Font cho subtitle (cần file .ttf)
+
+# TTS - Piper local
+tts:
+  engine: "piper"                     # piper | edge (fallback khi không có model)
+  voice_model: "en_US-ryan-high.onnx"   # Giong nam tram high quality - storytelling (Axen-style)
+                                     # Dat file .onnx + .onnx.json vao assets/voices/
+  language: "en"                      # en | vi
+  speaker: 0                          # Index speaker cho multi-speaker models
+  speed: 1.0                          # Tốc độ giọng đọc (1.0 = bình thường, >1 = nhanh hơn)
+  pitch_shift: -1.0                   # Hệ số pitch (-2 = trầm hơn, +2 = cao hơn)
+  sample_rate: 22050                  # Sample rate output
+  noise_scale: 0.667                  # Piper noise scale (giọng tự nhiên hơn)
+  length_scale: 1.0                   # Piper length scale
+
+# Render video
+render:
+  width: 1920
+  height: 1080
+  fps: 24
+  video_codec: "libx264"
+  preset: "slow"                      # ultrafast | fast | medium | slow | veryslow
+  crf: 18                             # 0-51, càng thấp càng chất lượng
+  pixel_format: "yuv420p"
+  audio_codec: "aac"
+  audio_bitrate: "192k"
+
+# Ken Burns
+ken_burns:
+  enabled: true
+  zoom_min: 1.0
+  zoom_max: 1.15
+  zoom_step: 0.0015                   # Tốc độ zoom mỗi frame
+  directions:                         # Các kiểu chuyển động sẽ random
+    - "zoom_in"
+    - "zoom_out"
+    - "pan_left"
+    - "pan_right"
+    - "pan_up"
+    - "pan_down"
+
+# Subtitle
+subtitle:
+  enabled: true
+  burn_in: false                       # False: xuất .srt riêng, không burn vào video
+  font: "assets/fonts/Inter-Bold.ttf"
+  font_size: 48
+  font_color: "&H00FFFFFF"            # White (BGR hex cho ASS)
+  outline_color: "&H00000000"         # Black outline
+  outline_thickness: 2
+  position: "bottom"                  # bottom | center | top
+  margin_v: 60                        # Khoảng cách từ cạnh dưới (pixels)
+
+# Color grading cinematic (Axen-style preset)
+color_grading:
+  enabled: true
+  contrast: 1.05
+  saturation: 0.9
+  brightness: 0.0
+  gamma: 1.0
+  warm_tone: 0.05                     # Tăng nhẹ red/yellow channel
+  vignette:
+    enabled: true
+    intensity: 0.15                   # 0.0 - 1.0
+
+# Background music
+music:
+  enabled: false
+  file: ""                                 # Disabled - no background music
+  volume: 0.18                            # Volume so với voice (0.0 - 1.0)
+  fade_in: 3.0                            # Giây fade in đầu video
+  fade_out: 5.0                           # Giây fade out cuối video
+
+# Timing
+timing:
+  words_per_minute: 155              # Tốc độ đọc - tăng để video ngắn hơn
+  min_scene_duration: 4.0             # Tối thiểu mỗi scene (giây)
+  max_scene_duration: 15.0            # Tối đa mỗi scene (giây)
+  silence_padding: 0.5                # Khoảng lặng giữa 2 scene (giây)
+
+# Logging
+logging:
+  level: "INFO"                       # DEBUG | INFO | WARNING | ERROR
+  file: "logs/pipeline.log"
+  console: true
+
+# FFmpeg binary (để trống = dùng PATH)
+ffmpeg:
+  binary: ""                          # VD: "C:/ffmpeg/bin/ffmpeg.exe"
+  ffprobe_binary: ""                  # VD: "C:/ffmpeg/bin/ffprobe.exe"
+
+# Override preset dang kich hoat: 'axen' (chat luong) | 'draft' (nhanh)
+active_preset: "axen"
