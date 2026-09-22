@@ -72,13 +72,13 @@ def get_preset(name: str = "axen") -> StylePreset:
                 "tts": {
                     "engine": "kokoro",
                     "language": "en",
-                    "speed": 0.95,
+                    "speed": 0.90,
                     "pitch_shift": -1.0,
                     "noise_scale": 0.667,
                     "length_scale": 1.0,
                     "kokoro": {
-                        "voice": "am_adam",
-                        "speed": 0.95,
+                        "voice": "am_onyx",
+                        "speed": 0.90,
                         "lang": "en-us",
                     },
                 },

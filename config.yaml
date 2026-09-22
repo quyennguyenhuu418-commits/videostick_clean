@@ -19,7 +19,7 @@ tts:
                                      # Dat file .onnx + .onnx.json vao assets/voices/
   language: "en"                      # en | vi
   speaker: 0                          # Index speaker cho multi-speaker models
-  speed: 0.95                         # Toc do giong doc (1.0 = binh thuong, >1 = nhanh hon)
+  speed: 0.90                         # Toc do giong doc (1.0 = binh thuong, >1 = nhanh hon)
   pitch_shift: -1.0                   # He so pitch (-2 = tram hon, +2 = cao hon) [Piper only]
   sample_rate: 22050                  # Sample rate output
   noise_scale: 0.667                  # Piper noise scale (giong tu nhien hon)
@@ -30,8 +30,8 @@ tts:
   # Model files: assets/kokoro/kokoro-v1.0.onnx + voices-v1.0.bin
   # Tai tu: https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0
   kokoro:
-    voice: "am_adam"                  # am_adam | am_michael | am_onyx | bm_george | bm_lewis ...
-    speed: 0.95                       # 0.5 - 2.0
+    voice: "am_onyx"                  # am_adam | am_michael | am_onyx | bm_george | bm_lewis ...
+    speed: 0.90                       # 0.5 - 2.0
     lang: "en-us"                     # en-us | en-gb
 
 # Render video
