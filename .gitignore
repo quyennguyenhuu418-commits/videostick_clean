@@ -1,0 +1,38 @@
+# Output & temp
+output/
+temp/
+logs/
+
+# Input data (regenerated)
+input/script.txt
+input/images/
+
+# Large binary assets
+assets/voices/*.onnx
+assets/voices/*.onnx.json
+assets/espeak-ng-data/
+
+# Executables & binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Environment
+.env
+.env.local
+*.pyc
+__pycache__/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large media
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wav
+*.mp3
+*.ogg
