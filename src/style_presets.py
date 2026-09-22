@@ -60,8 +60,8 @@ def get_preset(name: str = "axen") -> StylePreset:
                     "vignette": {"enabled": False, "intensity": 0.0},
                 },
                 "subtitle": {
-                    "enabled": True,
-                    "burn_in": True,
+                    "enabled": False,
+                    "burn_in": False,
                     "font_size": 52,
                     "font_color": "&H00FFFFFF",
                     "outline_color": "&H00000000",

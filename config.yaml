@@ -62,7 +62,7 @@ ken_burns:
 
 # Subtitle
 subtitle:
-  enabled: true
+  enabled: false
   burn_in: false                       # False: xuất .srt riêng, không burn vào video
   font: "assets/fonts/Inter-Bold.ttf"
   font_size: 48

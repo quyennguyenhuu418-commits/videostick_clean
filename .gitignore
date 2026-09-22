@@ -40,3 +40,7 @@ Thumbs.db
 *.wav
 *.mp3
 *.ogg
+
+# 1080p input images (don't track - regenerate from git history)
+img/Images_1080p/
+img/Images_1920x1080/
