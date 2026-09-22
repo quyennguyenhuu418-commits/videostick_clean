@@ -153,12 +153,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         subtitle_cfg = cfg.get("subtitle", {})
         srt_path = paths["output_dir"] / "subtitles.srt"
         ass_path = paths["temp_dir"] / "subtitles.ass"
-        if subtitle_cfg.get("enabled", False):
-            generate_subtitles(scenes, srt_path)
-            generate_ass(scenes, ass_path, subtitle_cfg)
-            log.info("  -> %s", srt_path.name)
-        else:
-            log.info("  -> Subtitle disabled (skip)")
+        generate_subtitles(scenes, srt_path)
+        generate_ass(scenes, ass_path, subtitle_cfg)
+        log.info("  -> %s", srt_path.name)
 
         # 8. Background music - FORCE DISABLED for voice-only
         music_path: Optional[Path] = None

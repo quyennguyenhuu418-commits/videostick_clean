@@ -61,8 +61,10 @@ ken_burns:
     - "pan_down"
 
 # Subtitle
+# Note: SRT file luon duoc generate vao output/subtitles.srt (phuc vu YouTube upload).
+# Set burn_in=false de khong burn subtitle vao video.
 subtitle:
-  enabled: false
+  enabled: true
   burn_in: false                       # False: xuất .srt riêng, không burn vào video
   font: "assets/fonts/Inter-Bold.ttf"
   font_size: 48
