@@ -1,116 +1,85 @@
-# VideoStick Configuration
-# File cấu hình chính của pipeline render video storytelling.
-
-# Đường dẫn thư mục (tương đối so với project root)
 paths:
-  input_images: "input/images"
-  input_script: "input/script.txt"
-  output_dir: "output"
-  temp_dir: "temp"
-  logs_dir: "logs"
-  voice_model: "assets/voices"        # Thư mục chứa Piper voice .onnx + .onnx.json
-  music_dir: "assets/music"           # Thư mục chứa background music
-  fonts_dir: "assets/fonts"           # Font cho subtitle (cần file .ttf)
-
-# TTS - Piper local
+  input_images: input/images
+  input_script: input/script.txt
+  output_dir: output
+  temp_dir: temp
+  logs_dir: logs
+  voice_model: assets/voices
+  music_dir: assets/music
+  fonts_dir: assets/fonts
 tts:
-  engine: "kokoro"                    # piper | kokoro (chon engine TTS)
-  voice_model: "en_US-ryan-high.onnx"   # Piper voice (khi engine=piper)
-                                     # Dat file .onnx + .onnx.json vao assets/voices/
-  language: "en"                      # en | vi
-  speaker: 0                          # Index speaker cho multi-speaker models
-  speed: 0.90                         # Toc do giong doc (1.0 = binh thuong, >1 = nhanh hon)
-  pitch_shift: -1.0                   # He so pitch (-2 = tram hon, +2 = cao hon) [Piper only]
-  sample_rate: 22050                  # Sample rate output
-  noise_scale: 0.667                  # Piper noise scale (giong tu nhien hon)
+  engine: kokoro
+  voice_model: en_US-ryan-high.onnx
+  language: en
+  speaker: 0
+  speed: 0.95
+  pitch_shift: -1
+  sample_rate: 22050
+  noise_scale: 0.667
   noise_w_scale: 0.8
-  length_scale: 1.0                   # Piper length scale
-
-  # Kokoro config (chi dung khi engine=kokoro)
-  # Model files: assets/kokoro/kokoro-v1.0.onnx + voices-v1.0.bin
-  # Tai tu: https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0
+  length_scale: 1.0
   kokoro:
-    voice: "am_onyx"                  # am_adam | am_michael | am_onyx | bm_george | bm_lewis ...
-    speed: 0.90                       # 0.5 - 2.0
-    lang: "en-us"                     # en-us | en-gb
-
-# Render video
+    voice: am_onyx
+    speed: 0.95
+    lang: en-us
 render:
   width: 1920
   height: 1080
-  fps: 24
-  video_codec: "libx264"
-  preset: "slow"                      # ultrafast | fast | medium | slow | veryslow
-  crf: 18                             # 0-51, càng thấp càng chất lượng
-  pixel_format: "yuv420p"
-  audio_codec: "aac"
-  audio_bitrate: "192k"
-
-# Ken Burns
+  fps: 30
+  video_codec: libx264
+  preset: slow
+  crf: 20
+  pixel_format: yuv420p
+  audio_codec: aac
+  audio_bitrate: 192k
 ken_burns:
   enabled: true
   zoom_min: 1.0
   zoom_max: 1.15
-  zoom_step: 0.0015                   # Tốc độ zoom mỗi frame
-  directions:                         # Các kiểu chuyển động sẽ random
-    - "zoom_in"
-    - "zoom_out"
-    - "pan_left"
-    - "pan_right"
-    - "pan_up"
-    - "pan_down"
-
-# Subtitle
-# Note: SRT file luon duoc generate vao output/subtitles.srt (phuc vu YouTube upload).
-# Set burn_in=false de khong burn subtitle vao video.
+  zoom_step: 0.0015
+  directions:
+  - zoom_in
+  - zoom_out
+  - pan_left
+  - pan_right
+  - pan_up
+  - pan_down
 subtitle:
-  enabled: true
-  burn_in: false                       # False: xuất .srt riêng, không burn vào video
-  font: "assets/fonts/Inter-Bold.ttf"
+  enabled: false
+  burn_in: false
+  font: assets/fonts/Inter-Bold.ttf
   font_size: 48
-  font_color: "&H00FFFFFF"            # White (BGR hex cho ASS)
-  outline_color: "&H00000000"         # Black outline
+  font_color: '&H00FFFFFF'
+  outline_color: '&H00000000'
   outline_thickness: 2
-  position: "bottom"                  # bottom | center | top
-  margin_v: 60                        # Khoảng cách từ cạnh dưới (pixels)
-
-# Color grading cinematic (Axen-style preset)
+  position: bottom
+  margin_v: 60
 color_grading:
   enabled: true
   contrast: 1.05
   saturation: 0.9
   brightness: 0.0
   gamma: 1.0
-  warm_tone: 0.05                     # Tăng nhẹ red/yellow channel
+  warm_tone: 0.05
   vignette:
     enabled: true
-    intensity: 0.15                   # 0.0 - 1.0
-
-# Background music
+    intensity: 0.15
 music:
   enabled: false
-  file: ""                                 # Disabled - no background music
-  volume: 0.18                            # Volume so với voice (0.0 - 1.0)
-  fade_in: 3.0                            # Giây fade in đầu video
-  fade_out: 5.0                           # Giây fade out cuối video
-
-# Timing
+  file: ''
+  volume: 0.18
+  fade_in: 3.0
+  fade_out: 5.0
 timing:
-  words_per_minute: 170              # Toc do doc - tang de video ngan hon
-  min_scene_duration: 3.0             # Toi thieu moi scene (giay)
-  max_scene_duration: 15.0            # Toi da moi scene (giay)
-  silence_padding: 0.4                # Khoang lang giua 2 scene (giay)
-
-# Logging
+  words_per_minute: 171
+  min_scene_duration: 3
+  max_scene_duration: 15
+  silence_padding: 0.4
 logging:
-  level: "INFO"                       # DEBUG | INFO | WARNING | ERROR
-  file: "logs/pipeline.log"
+  level: INFO
+  file: logs/pipeline.log
   console: true
-
-# FFmpeg binary (để trống = dùng PATH)
 ffmpeg:
-  binary: ""                          # VD: "C:/ffmpeg/bin/ffmpeg.exe"
-  ffprobe_binary: ""                  # VD: "C:/ffmpeg/bin/ffprobe.exe"
-
-# Override preset dang kich hoat: 'axen' (chat luong) | 'draft' (nhanh)
-active_preset: "axen"
+  binary: ''
+  ffprobe_binary: ''
+active_preset: axen

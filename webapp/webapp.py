@@ -452,9 +452,15 @@ def start_render():
 @app.route("/api/progress/<session_id>")
 def progress(session_id: str):
     """Server-Sent Events stream cho progress."""
+    import json as _json
+
     def generate():
         for event in render_progress(session_id):
-            yield f"data: {event}\n\n"
+            # Phai dung json.dumps de trinh bay JSON hop le.
+            # Neu de mac dinh, Python repr dict ra {'key': 'val'}
+            # (single quotes) ma JSON.parse cua browser khong chap nhan.
+            payload = _json.dumps(event, ensure_ascii=False)
+            yield f"data: {payload}\n\n"
 
     from flask import Response
     return Response(generate(), mimetype="text/event-stream")
