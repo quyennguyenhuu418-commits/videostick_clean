@@ -226,6 +226,65 @@ function initSettings() {
       card.classList.add("active");
     });
   });
+
+  // TTS engine switch
+  const engineSel = document.getElementById("cfg_tts_engine");
+  if (engineSel) {
+    engineSel.addEventListener("change", () => {
+      const engine = engineSel.value;
+      const panelPiper = document.getElementById("panelPiper");
+      const panelKokoro = document.getElementById("panelKokoro");
+      if (panelPiper) panelPiper.style.display = engine === "piper" ? "" : "none";
+      if (panelKokoro) panelKokoro.style.display = engine === "kokoro" ? "" : "none";
+    });
+  }
+}
+
+function populateVoiceLists(cfg) {
+  // Populate Piper voices from server-provided list
+  const piperSelect = document.getElementById("cfg_voice_model");
+  if (piperSelect && cfg.voice_options?.piper) {
+    piperSelect.innerHTML = "";
+    cfg.voice_options.piper.forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      piperSelect.appendChild(opt);
+    });
+  }
+
+  // Update TTS engine availability hints
+  const hint = document.getElementById("ttsEngineHint");
+  const engineSel = document.getElementById("cfg_tts_engine");
+  if (hint && cfg.engine_available) {
+    const parts = [];
+    if (cfg.engine_available.piper) {
+      parts.push(`Piper: OK (${cfg.voice_options?.piper?.length || 0} voice)`);
+    } else {
+      parts.push("Piper: CHUA CAI package");
+    }
+    if (cfg.engine_available.kokoro) {
+      parts.push("Kokoro: OK (model da tai)");
+    } else {
+      parts.push("Kokoro: model chua tai vao assets/kokoro/");
+    }
+    hint.textContent = parts.join(" | ");
+    hint.style.color = cfg.engine_available.kokoro || cfg.engine_available.piper ? "var(--success, #0a0)" : "var(--warning, #f80)";
+  }
+
+  // Disable options that aren't available
+  if (engineSel) {
+    Array.from(engineSel.options).forEach(opt => {
+      if (opt.value === "kokoro" && cfg.engine_available && !cfg.engine_available.kokoro) {
+        opt.disabled = true;
+        opt.textContent += " (chua tai model)";
+      }
+      if (opt.value === "piper" && cfg.engine_available && !cfg.engine_available.piper) {
+        opt.disabled = true;
+        opt.textContent += " (chua cai)";
+      }
+    });
+  }
 }
 
 async function loadConfig() {
@@ -249,10 +308,31 @@ async function loadConfig() {
     const mus = cfg.music || {};
     const tim = cfg.timing || {};
 
+    // Engine selection
+    const engine = tts.engine || "piper";
+    set("cfg_tts_engine", engine);
+    // Trigger panel switch
+    const engineEvt = new Event("change");
+    document.getElementById("cfg_tts_engine")?.dispatchEvent(engineEvt);
+
     set("cfg_language", tts.language || "en");
     set("cfg_speed", tts.speed || "0.95");
     set("cfg_pitch", tts.pitch_shift || "-1");
     document.getElementById("pitchVal").textContent = parseFloat(tts.pitch_shift || "-1").toFixed(1);
+
+    // Kokoro overrides
+    const kok = tts.kokoro || {};
+    set("cfg_kokoro_voice", kok.voice || "am_adam");
+    set("cfg_kokoro_speed", kok.speed || "0.95");
+    set("cfg_kokoro_lang", kok.lang || "en-us");
+
+    // Piper voice selection
+    if (tts.voice_model) {
+      set("cfg_voice_model", tts.voice_model.replace(/\.onnx$/, ""));
+    }
+
+    // Populate voice lists with availability hints
+    populateVoiceLists(cfg);
 
     set("cfg_crf", ren.crf || "20");
     set("cfg_preset", ren.preset || "slow");
@@ -457,12 +537,22 @@ async function startRender() {
 
   const activePreset = document.querySelector(".preset-card.active");
   formData.append("active_preset", activePreset ? activePreset.dataset.preset : "axen");
-  formData.append("cfg_crf", getVal("cfg_crf"));
-  formData.append("cfg_preset", getVal("cfg_preset"));
-  formData.append("cfg_fps", getVal("cfg_fps"));
+
+  // TTS engine + params
+  formData.append("tts_engine", getVal("cfg_tts_engine") || "piper");
+  formData.append("voice_model", getVal("cfg_voice_model"));
   formData.append("cfg_language", getVal("cfg_language"));
   formData.append("cfg_speed", getVal("cfg_speed"));
   formData.append("cfg_pitch", getVal("cfg_pitch"));
+
+  // Kokoro overrides
+  formData.append("kokoro_voice", getVal("cfg_kokoro_voice"));
+  formData.append("kokoro_speed", getVal("cfg_kokoro_speed"));
+  formData.append("kokoro_lang", getVal("cfg_kokoro_lang"));
+
+  formData.append("cfg_crf", getVal("cfg_crf"));
+  formData.append("cfg_preset", getVal("cfg_preset"));
+  formData.append("cfg_fps", getVal("cfg_fps"));
   formData.append("cfg_sub_position", getVal("cfg_sub_position"));
   formData.append("cfg_sub_fontsize", getVal("cfg_sub_fontsize"));
   formData.append("cfg_sub_enabled", getCheck("cfg_sub_enabled"));
@@ -539,9 +629,16 @@ function buildConfigPayload() {
       fps: parseInt(getVal("cfg_fps")),
     },
     tts: {
+      engine: getVal("cfg_tts_engine") || "piper",
       language: getVal("cfg_language"),
       speed: parseFloat(getVal("cfg_speed")),
       pitch_shift: parseFloat(getVal("cfg_pitch")),
+      voice_model: getVal("cfg_voice_model") + ".onnx",
+      kokoro: {
+        voice: getVal("cfg_kokoro_voice") || "am_adam",
+        speed: parseFloat(getVal("cfg_kokoro_speed") || "0.95"),
+        lang: getVal("cfg_kokoro_lang") || "en-us",
+      },
     },
     subtitle: {
       position: getVal("cfg_sub_position"),

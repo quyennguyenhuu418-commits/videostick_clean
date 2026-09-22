@@ -131,13 +131,14 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 0
 
         # 6. TTS
-        log.info("[4/6] Sinh giong doc (Piper TTS local)...")
         tts_cfg = cfg.get("tts", {})
+        log.info("[4/6] Sinh giong doc (engine=%s)...", tts_cfg.get("engine", "piper"))
         audio_segments = synth_scenes(
             scenes=scenes,
             output_dir=paths["temp_dir"],
             tts_cfg=tts_cfg,
             voice_dir=paths["voice_dir"],
+            kokoro_model_dir=paths["voice_dir"].parent / "kokoro",
         )
         # Cap nhat duration theo audio that
         scenes = refine_with_audio_durations(scenes, silence_padding=cfg.get("timing", {}).get("silence_padding", 0.5))

@@ -174,26 +174,87 @@
                             </h3>
                             <div class="form-row">
                                 <div class="form-group">
+                                    <label>Engine TTS</label>
+                                    <select id="cfg_tts_engine" class="form-select">
+                                        <option value="piper">Piper (nhanh, model .onnx)</option>
+                                        <option value="kokoro">Kokoro (chat luong cao, am_adam)</option>
+                                    </select>
+                                    <span class="form-hint" id="ttsEngineHint"></span>
+                                </div>
+                                <div class="form-group">
                                     <label>Ngon ngu</label>
                                     <select id="cfg_language" class="form-select">
                                         <option value="en" selected>Tieng Anh</option>
                                         <option value="vi">Tieng Viet</option>
                                     </select>
                                 </div>
+                            </div>
+
+                            <!-- Piper settings -->
+                            <div class="tts-engine-panel" id="panelPiper">
                                 <div class="form-group">
-                                    <label>Toc do doc</label>
-                                    <select id="cfg_speed" class="form-select">
-                                        <option value="0.85">Cham (0.85x)</option>
-                                        <option value="0.95" selected>Binh thuong (0.95x)</option>
-                                        <option value="1.0">Nhanh (1.0x)</option>
-                                    </select>
+                                    <label>Voice Piper (.onnx trong assets/voices/)</label>
+                                    <select id="cfg_voice_model" class="form-select"></select>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Toc do doc</label>
+                                        <select id="cfg_speed" class="form-select">
+                                            <option value="0.85">Cham (0.85x)</option>
+                                            <option value="0.95" selected>Binh thuong (0.95x)</option>
+                                            <option value="1.0">Nhanh (1.0x)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Pitch (Piper only)</label>
+                                        <div class="range-wrap">
+                                            <input type="range" id="cfg_pitch" min="-3" max="3" step="0.5" value="-1">
+                                            <span class="range-val" id="pitchVal">-1.0</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="form-group">
-                                <label>Tieu de bieu tuong cam xuc (TTS Pitch)</label>
-                                <div class="range-wrap">
-                                    <input type="range" id="cfg_pitch" min="-3" max="3" step="0.5" value="-1">
-                                    <span class="range-val" id="pitchVal">-1.0</span>
+
+                            <!-- Kokoro settings -->
+                            <div class="tts-engine-panel" id="panelKokoro" style="display:none">
+                                <div class="form-group">
+                                    <label>Voice Kokoro</label>
+                                    <select id="cfg_kokoro_voice" class="form-select">
+                                        <option value="am_adam">am_adam - American male, Adam/AXEN style</option>
+                                        <option value="am_michael">am_michael - American male, trầm rõ ràng</option>
+                                        <option value="am_onyx">am_onyx - American male, trầm sâu</option>
+                                        <option value="am_echo">am_echo - American male, trung tính</option>
+                                        <option value="am_liam">am_liam - American male, trung-cao</option>
+                                        <option value="am_puck">am_puck - American male, dynamic</option>
+                                        <option value="bm_george">bm_george - British male, documentary</option>
+                                        <option value="bm_lewis">bm_lewis - British male, sang trọng</option>
+                                        <option value="bm_daniel">bm_daniel - British male, ấm</option>
+                                        <option value="bm_fable">bm_fable - British male, kể chuyện</option>
+                                    </select>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Toc do doc</label>
+                                        <select id="cfg_kokoro_speed" class="form-select">
+                                            <option value="0.85">Cham (0.85x)</option>
+                                            <option value="0.95" selected>Binh thuong (0.95x)</option>
+                                            <option value="1.0">Nhanh (1.0x)</option>
+                                            <option value="1.1">Nhanh (1.1x)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Lang code</label>
+                                        <select id="cfg_kokoro_lang" class="form-select">
+                                            <option value="en-us" selected>en-us</option>
+                                            <option value="en-gb">en-gb</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-hint">
+                                    <strong>Setup Kokoro:</strong> tai
+                                    <code>kokoro-v1.0.onnx</code> + <code>voices-v1.0.bin</code> tu
+                                    <a href="https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX" target="_blank">HF</a>
+                                    va dat vao <code>assets/kokoro/</code>.
                                 </div>
                             </div>
                         </div>

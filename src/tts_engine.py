@@ -1,14 +1,15 @@
-"""TTS engine: sinh giong doc cho tung scene bang Piper local.
+"""TTS engine: factory + Piper implementation.
 
 Thiet ke:
-    - Piper TTS sinh file WAV rieng cho tung scene.
-    - Ap dung speed, pitch shift (thong qua ffmpeg atempo + asetrate neu can).
-    - Neu khong co Piper model, fallback tao WAV silence voi duration tuong ung
-      (de pipeline van chay duoc, nguoi dung test pipeline truoc khi co model).
+    - Factory `get_tts_engine(name, ...)` tra ve engine phu hop (Piper hoac Kokoro).
+    - PiperEngine: code goc, tach rieng de de bao tri.
+    - Pipeline.py goi qua factory, khong can biet engine cu the.
 
-Output:
-    - File WAV cho tung scene tai output_dir/<scene_index>.wav
-    - File WAV tong hop tai output_dir/voice_full.wav
+Engine ho tro:
+    - "piper": piper-tts + onnx (hien tai)
+    - "kokoro": kokoro-onnx (Apache 2.0, chat luong cao hon)
+
+Fallback neu khong co model: tao WAV silence de pipeline van chay duoc.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,8 +27,9 @@ from typing import List, Optional
 from .exceptions import AssetNotFoundError, TTSError
 from .scene_segmenter import Scene
 
-
 log = logging.getLogger(__name__)
+
+SUPPORTED_ENGINES = ("piper", "kokoro")
 
 
 @dataclass
@@ -40,6 +41,10 @@ class AudioSegment:
     duration: float  # giay
 
 
+# =========================================================================
+# Piper Engine (giu tu code goc)
+# =========================================================================
+
 def _have_piper() -> bool:
     """Kiem tra piper-tts da duoc cai dat chua."""
     try:
@@ -50,25 +55,13 @@ def _have_piper() -> bool:
 
 
 def _resolve_piper_voice(voice_dir: Path, voice_name: str) -> tuple[Path, Path]:
-    """Tim file .onnx va .onnx.json trong thu muc voice_dir.
-
-    Args:
-        voice_dir: Thu muc assets/voices.
-        voice_name: Ten model (vd: 'en_US-amy-low' hoac 'en_US-amy-low.onnx').
-
-    Returns:
-        (path_onnx, path_json).
-
-    Raises:
-        AssetNotFoundError: Neu khong tim thay.
-    """
+    """Tim file .onnx va .onnx.json trong thu muc voice_dir."""
     if not voice_dir.is_dir():
         raise AssetNotFoundError(f"Thu muc voice khong ton tai: {voice_dir}")
 
     candidates_onnx = list(voice_dir.glob(f"{voice_name}*.onnx"))
     candidates_json = list(voice_dir.glob(f"{voice_name}*.onnx.json"))
     if not candidates_onnx:
-        # Thu them: voice_name co the da co .onnx roi
         onnx_path = voice_dir / voice_name
         json_path = voice_dir / f"{voice_name}.json"
         if not onnx_path.exists():
@@ -100,13 +93,14 @@ def _get_audio_duration(wav_path: Path) -> float:
         return 0.0
 
 
-def _apply_speed_atempo(wav_path: Path, speed: float, output_path: Path) -> Path:
-    """Ap dung toc do (speed != 1.0) bang ffmpeg atempo.
+def _find_ffmpeg() -> Optional[str]:
+    import shutil
+    return shutil.which("ffmpeg")
 
-    Piper khong ho tro speed truc tiep nen can ffmpeg de dieu chinh.
-    """
+
+def _apply_speed_atempo(wav_path: Path, speed: float, output_path: Path) -> Path:
+    """Ap dung toc do (speed != 1.0) bang ffmpeg atempo."""
     if abs(speed - 1.0) < 0.01:
-        # Khong can thay doi, copy
         if wav_path != output_path:
             shutil.copy2(wav_path, output_path)
         return output_path
@@ -117,7 +111,6 @@ def _apply_speed_atempo(wav_path: Path, speed: float, output_path: Path) -> Path
         shutil.copy2(wav_path, output_path)
         return output_path
 
-    # atempo chap nhan 0.5 - 2.0. Neu ngoai khoang, can chain nhieu atempo.
     chain = []
     s = speed
     while s < 0.5:
@@ -135,20 +128,15 @@ def _apply_speed_atempo(wav_path: Path, speed: float, output_path: Path) -> Path
         "-c:a", "pcm_s16le",
         str(output_path),
     ]
-    log.debug("ffmpeg atempo: %s", " ".join(cmd))
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         raise TTSError(f"Loi ffmpeg atempo: {e.stderr.decode(errors='ignore')[:300]}")
-
     return output_path
 
 
 def _apply_pitch_shift(wav_path: Path, semitones: float, output_path: Path) -> Path:
-    """Ap dung pitch shift bang ffmpeg asetrate + aresample.
-
-    Mot semitone = 2^(1/12) ~= 1.059463. Pitch down (am) -> giong tram hon.
-    """
+    """Ap dung pitch shift bang ffmpeg asetrate + aresample."""
     if abs(semitones) < 0.05:
         if wav_path != output_path:
             shutil.copy2(wav_path, output_path)
@@ -167,27 +155,18 @@ def _apply_pitch_shift(wav_path: Path, semitones: float, output_path: Path) -> P
         "-c:a", "pcm_s16le",
         str(output_path),
     ]
-    log.debug("ffmpeg pitch shift: %s", " ".join(cmd))
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         raise TTSError(f"Loi ffmpeg pitch shift: {e.stderr.decode(errors='ignore')[:300]}")
-
     return output_path
 
 
-def _find_ffmpeg() -> Optional[str]:
-    """Tim ffmpeg binary."""
-    import shutil
-    return shutil.which("ffmpeg")
-
-
 def _write_silence_wav(wav_path: Path, duration: float, sample_rate: int = 22050) -> None:
-    """Fallback: tao file WAV im lang voi duration cho truoc."""
+    """Tao file WAV im lang voi duration cho truoc."""
     wav_path.parent.mkdir(parents=True, exist_ok=True)
-    n_frames = int(duration * sample_rate)
-    import struct
-    silence = b"\x00\x00" * n_frames  # 16-bit mono PCM
+    n_frames = max(0, int(duration * sample_rate))
+    silence = b"\x00\x00" * n_frames
     with wave.open(str(wav_path), "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
@@ -196,19 +175,16 @@ def _write_silence_wav(wav_path: Path, duration: float, sample_rate: int = 22050
 
 
 def _piper_synthesize(text: str, onnx_path: Path, json_path: Path, output_wav: Path, cfg: dict) -> Path:
-    """Tong hop giong doc bang Piper (API moi - synthesize tra ve Iterable[AudioChunk])."""
-    import os
+    """Tong hop giong doc bang Piper."""
     import piper
     from piper import PiperVoice
     from piper.config import SynthesisConfig
 
-    # Fix piper load() tren Windows user co dau/khong ASCII: copy espeak-ng-data
-    # sang thu muc ASCII (assets/espeak-ng-data) de espeak-ng doc duoc path.
+    # Fix piper load() tren Windows user co dau/khong ASCII
     project_espeak_dir = Path(__file__).resolve().parent.parent / "assets" / "espeak-ng-data"
     if not project_espeak_dir.is_dir():
         bundled = Path(piper.__file__).parent / "espeak-ng-data"
         if bundled.is_dir():
-            import shutil
             try:
                 shutil.copytree(str(bundled), str(project_espeak_dir))
             except Exception:
@@ -243,7 +219,6 @@ def _piper_synthesize(text: str, onnx_path: Path, json_path: Path, output_wav: P
     import numpy as np
     audio_segments = []
     for ch in chunks:
-        # Lay int16 array (property lazy-load tu float32 neu can)
         audio = ch._audio_int16_array
         if audio is None:
             float_audio = ch.audio_float_array
@@ -266,19 +241,135 @@ def _piper_synthesize(text: str, onnx_path: Path, json_path: Path, output_wav: P
     return output_wav
 
 
+# =========================================================================
+# Factory + public API
+# =========================================================================
+
+class PiperEngineWrapper:
+    """Adapter de PiperEngine co cung interface voi KokoroEngine.
+
+    Luon load model ngay (Piper rat nhanh) -> pipeline behavior giong cu.
+    """
+
+    def __init__(self, voice_dir: Path, voice_name: str, cfg: dict):
+        self.voice_dir = Path(voice_dir)
+        self.voice_name = voice_name
+        self.cfg = cfg
+        self._onnx_path: Optional[Path] = None
+        self._json_path: Optional[Path] = None
+        self._available = False
+
+        if _have_piper():
+            try:
+                self._onnx_path, self._json_path = _resolve_piper_voice(
+                    self.voice_dir, self.voice_name
+                )
+                self._available = True
+                log.info("Piper voice model: %s", self._onnx_path.name)
+            except AssetNotFoundError as e:
+                log.warning("%s. Fallback: silence WAV.", e)
+
+    def is_available(self) -> bool:
+        return self._available
+
+    def get_voices(self) -> list[str]:
+        """Tra ve cac voice tim thay trong voice_dir."""
+        if not self.voice_dir.is_dir():
+            return []
+        return sorted([p.stem.replace(".onnx", "")
+                       for p in self.voice_dir.glob("*.onnx")
+                       if p.is_file()])
+
+    def synthesize(
+        self,
+        text: str,
+        voice: str = "",
+        speed: float = 1.0,
+        lang: str = "en",
+        output_path: Optional[Path] = None,
+    ) -> tuple[Path, float]:
+        if not self._available or self._onnx_path is None:
+            raise TTSError("Piper engine khong kha dung (thieu model hoac package).")
+
+        if output_path is None:
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            tmp.close()
+            output_path = Path(tmp.name)
+        else:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        _piper_synthesize(
+            text,
+            self._onnx_path,
+            self._json_path,  # type: ignore[arg-type]
+            output_path,
+            self.cfg,
+        )
+        return output_path, _get_audio_duration(output_path)
+
+
+def get_tts_engine(
+    engine_name: str,
+    voice_dir: Path,
+    tts_cfg: dict,
+    kokoro_model_dir: Optional[Path] = None,
+):
+    """Factory: tra ve engine instance.
+
+    Args:
+        engine_name: "piper" hoac "kokoro".
+        voice_dir: Thu muc voice cho Piper (assets/voices).
+        tts_cfg: Dict tts tu config (engine, voice_model, speed, ...).
+        kokoro_model_dir: Thu muc Kokoro model (assets/kokoro).
+
+    Returns:
+        Engine object co method: is_available(), get_voices(),
+        synthesize(text, voice, speed, lang, output_path).
+
+    Raises:
+        TTSError: Neu engine_name khong ho tro.
+    """
+    engine_name = (engine_name or "piper").lower().strip()
+
+    if engine_name == "piper":
+        voice_name = tts_cfg.get("voice_model", "")
+        return PiperEngineWrapper(voice_dir, voice_name, tts_cfg)
+
+    if engine_name == "kokoro":
+        from .tts_kokoro import KokoroEngine
+        if kokoro_model_dir is None:
+            kokoro_model_dir = voice_dir.parent / "kokoro"
+        return KokoroEngine(
+            model_dir=kokoro_model_dir,
+            espeak_data_dir=voice_dir.parent / "espeak-ng-data",
+        )
+
+    raise TTSError(
+        f"Engine '{engine_name}' khong ho tro. "
+        f"Chon mot trong: {', '.join(SUPPORTED_ENGINES)}"
+    )
+
+
+# =========================================================================
+# Public API (giu tuong thich voi code cu)
+# =========================================================================
+
 def synth_scenes(
     scenes: List[Scene],
     output_dir: str | os.PathLike[str],
     tts_cfg: dict,
     voice_dir: str | os.PathLike[str],
+    kokoro_model_dir: Optional[str | os.PathLike[str]] = None,
 ) -> List[AudioSegment]:
     """Tong hop giong doc cho tat ca scene.
 
     Args:
         scenes: Danh sach Scene co text.
         output_dir: Thu muc xuat WAV.
-        tts_cfg: Dict tts tu config.yaml.
-        voice_dir: Thu muc chua Piper voice model.
+        tts_cfg: Dict tts tu config.yaml (co the chua `engine` key).
+        voice_dir: Thu muc chua Piper voice model (assets/voices).
+        kokoro_model_dir: Thu muc Kokoro (mac dinh: assets/kokoro).
 
     Returns:
         Danh sach AudioSegment theo thu tu scene.
@@ -286,46 +377,83 @@ def synth_scenes(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    voice_name = tts_cfg.get("voice_model", "")
-    speed = float(tts_cfg.get("speed", 1.0))
-    pitch = float(tts_cfg.get("pitch_shift", 0.0))
+    voice_dir = Path(voice_dir)
+    if kokoro_model_dir is None:
+        kokoro_model_dir = voice_dir.parent / "kokoro"
+    kokoro_model_dir = Path(kokoro_model_dir)
+
+    engine_name = tts_cfg.get("engine", "piper")
+    engine = None
+    engine_available = False
+
+    try:
+        engine = get_tts_engine(
+            engine_name,
+            voice_dir,
+            tts_cfg,
+            kokoro_model_dir,
+        )
+        engine_available = engine.is_available()
+        if engine_available:
+            log.info("TTS engine: %s", engine_name)
+        else:
+            log.warning("Engine %s khong kha dung (thieu model). Fallback silence.", engine_name)
+    except TTSError as e:
+        log.error("Khong khoi tao duoc engine '%s': %s. Fallback silence.", engine_name, e)
+    except Exception as e:
+        log.error("Loi bat khi khoi tao engine: %s. Fallback silence.", e)
+
+    # Engine-specific params
+    if engine_name == "kokoro":
+        default_voice = tts_cfg.get("kokoro", {}).get("voice", "am_adam")
+        default_speed = float(tts_cfg.get("kokoro", {}).get("speed", tts_cfg.get("speed", 1.0)))
+        default_lang = tts_cfg.get("kokoro", {}).get("lang", "en-us")
+        # Kokoro khong can pitch shift
+        pitch_shift = 0.0
+    else:
+        default_voice = ""  # Piper dung voice da load
+        default_speed = float(tts_cfg.get("speed", 1.0))
+        default_lang = tts_cfg.get("language", "en")
+        pitch_shift = float(tts_cfg.get("pitch_shift", 0.0))
 
     segments: List[AudioSegment] = []
-
-    have_piper_model = False
-    onnx_path: Optional[Path] = None
-    json_path: Optional[Path] = None
-
-    if _have_piper():
-        try:
-            onnx_path, json_path = _resolve_piper_voice(Path(voice_dir), voice_name)
-            have_piper_model = True
-            log.info("Su dung Piper voice model: %s", onnx_path.name)
-        except AssetNotFoundError as e:
-            log.warning("%s. Fallback: tao WAV silence de pipeline van chay.", e)
-    else:
-        log.warning("Chua cai piper-tts. Fallback: WAV silence (khong co giong doc that).")
 
     for sc in scenes:
         raw_wav = out_dir / f"scene_{sc.index:03d}_raw.wav"
         speed_wav = out_dir / f"scene_{sc.index:03d}_speed.wav"
         final_wav = out_dir / f"scene_{sc.index:03d}.wav"
 
-        if have_piper_model:
+        if engine_available and engine is not None:
             try:
-                _piper_synthesize(sc.text, onnx_path, json_path, raw_wav, tts_cfg)
+                voice = default_voice
+                # Piper: giu nguyen voice da load (bo qua voice param)
+                if engine_name == "piper":
+                    voice = ""
+
+                engine.synthesize(
+                    text=sc.text,
+                    voice=voice,
+                    speed=default_speed,
+                    lang=default_lang,
+                    output_path=raw_wav,
+                )
             except Exception as e:
                 log.error("Loi TTS scene %s: %s. Fallback silence.", sc.index, e)
-                _write_silence_wav(raw_wav, sc.duration)
+                _write_silence_wav(raw_wav, sc.duration or 4.0)
         else:
             _write_silence_wav(raw_wav, sc.duration or 4.0)
 
-        _apply_speed_atempo(raw_wav, speed, speed_wav)
-        _apply_pitch_shift(speed_wav, pitch, final_wav)
+        # Speed va pitch chi can thiet cho Piper (Kokoro da ap speed truc tiep)
+        if engine_name == "piper":
+            _apply_speed_atempo(raw_wav, default_speed, speed_wav)
+            _apply_pitch_shift(speed_wav, pitch_shift, final_wav)
+        else:
+            # Kokoro: chi can doi ten file
+            shutil.move(str(raw_wav), str(final_wav))
 
         dur = _get_audio_duration(final_wav)
         if dur <= 0:
-            dur = sc.duration  # fallback dung estimate
+            dur = sc.duration
 
         sc.audio_path = final_wav
         sc.audio_duration = dur
@@ -335,33 +463,22 @@ def synth_scenes(
             wav_path=final_wav,
             duration=dur,
         ))
-        log.info("TTS scene %02d | dur=%.2fs | %s", sc.index, dur, final_wav.name)
+        log.info("TTS [%s] scene %02d | dur=%.2fs | %s",
+                 engine_name, sc.index, dur, final_wav.name)
 
     return segments
 
 
 def concatenate_segments(segments: List[AudioSegment], output_path: Path, silence_padding: float = 0.5) -> Path:
-    """Noi cac segment WAV thanh 1 file WAV dai (co chen silence giua cac segment).
-
-    Args:
-        segments: Danh sach AudioSegment.
-        output_path: File WAV output.
-        silence_padding: Khoang lang giua 2 segment (giay).
-
-    Returns:
-        Path den file WAV da noi.
-    """
-    import struct
-
+    """Noi cac segment WAV thanh 1 file WAV dai."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not segments:
-        # Tao file rong
         _write_silence_wav(output_path, 0.0)
         return output_path
 
     sample_rate = 22050
-    sample_width = 2  # 16-bit
+    sample_width = 2
     n_channels = 1
 
     frames: List[bytes] = []
@@ -375,11 +492,9 @@ def concatenate_segments(segments: List[AudioSegment], output_path: Path, silenc
 
         if seg.wav_path.exists():
             with wave.open(str(seg.wav_path), "rb") as wf:
-                # Dam bao cung sample rate / width / channels
                 if (wf.getframerate() != sample_rate or
                         wf.getsampwidth() != sample_width or
                         wf.getnchannels() != n_channels):
-                    # Chuyen doi bang ffmpeg neu khac
                     converted = _convert_wav_format(seg.wav_path, sample_rate, sample_width, n_channels)
                     with wave.open(str(converted), "rb") as wf2:
                         data = wf2.readframes(wf2.getnframes())
@@ -400,7 +515,6 @@ def concatenate_segments(segments: List[AudioSegment], output_path: Path, silenc
 
 
 def _convert_wav_format(wav_path: Path, rate: int, sampwidth: int, channels: int) -> Path:
-    """Chuyen doi WAV sang format chuan (dung ffmpeg neu can)."""
     ffmpeg_bin = _find_ffmpeg()
     if not ffmpeg_bin:
         return wav_path

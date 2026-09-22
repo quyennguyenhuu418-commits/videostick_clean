@@ -14,16 +14,25 @@ paths:
 
 # TTS - Piper local
 tts:
-  engine: "piper"                     # piper | edge (fallback khi không có model)
-  voice_model: "en_US-ryan-high.onnx"   # Giong nam tram high quality - storytelling (Axen-style)
+  engine: "piper"                     # piper | kokoro (chọn engine TTS)
+  voice_model: "en_US-ryan-high.onnx"   # Piper voice (khi engine=piper)
                                      # Dat file .onnx + .onnx.json vao assets/voices/
   language: "en"                      # en | vi
   speaker: 0                          # Index speaker cho multi-speaker models
   speed: 1.0                          # Tốc độ giọng đọc (1.0 = bình thường, >1 = nhanh hơn)
-  pitch_shift: -1.0                   # Hệ số pitch (-2 = trầm hơn, +2 = cao hơn)
+  pitch_shift: -1.0                   # Hệ số pitch (-2 = trầm hơn, +2 = cao hơn) [Piper only]
   sample_rate: 22050                  # Sample rate output
   noise_scale: 0.667                  # Piper noise scale (giọng tự nhiên hơn)
+  noise_w_scale: 0.8
   length_scale: 1.0                   # Piper length scale
+
+  # Kokoro config (chi dung khi engine=kokoro)
+  # Model files: assets/kokoro/kokoro-v1.0.onnx + voices-v1.0.bin
+  # Tai tu: https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX
+  kokoro:
+    voice: "am_adam"                  # am_adam | am_michael | am_onyx | bm_george | bm_lewis ...
+    speed: 1.0                        # 0.5 - 2.0
+    lang: "en-us"                     # en-us | en-gb
 
 # Render video
 render:

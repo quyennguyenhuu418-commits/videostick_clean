@@ -160,7 +160,54 @@ def get_config():
         "music": cfg.get("music", {}),
         "timing": cfg.get("timing", {}),
         "active_preset": cfg.get("active_preset", "axen"),
+        # Voice metadata
+        "voice_options": {
+            "piper": _list_piper_voices(),
+            "kokoro": _list_kokoro_voices(),
+        },
+        "engine_available": {
+            "piper": _is_piper_available(),
+            "kokoro": _is_kokoro_available(),
+        },
     })
+
+
+def _list_piper_voices() -> list:
+    """Quet assets/voices/ tra ve cac piper voice co san."""
+    project_root = Path(__file__).resolve().parent.parent
+    voice_dir = project_root / "assets" / "voices"
+    if not voice_dir.is_dir():
+        return []
+    out = []
+    for p in sorted(voice_dir.glob("*.onnx")):
+        if p.is_file():
+            out.append(p.stem.replace(".onnx", ""))
+    return out
+
+
+def _list_kokoro_voices() -> list:
+    """Tra ve danh sach Kokoro voices co trong model (neu model da download)."""
+    try:
+        from src.tts_kokoro import KOKORO_VOICES
+        return [{"id": k, "desc": v} for k, v in KOKORO_VOICES.items()]
+    except Exception:
+        return []
+
+
+def _is_piper_available() -> bool:
+    try:
+        import piper  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _is_kokoro_available() -> bool:
+    try:
+        from src.tts_kokoro import is_kokoro_available
+        return is_kokoro_available()
+    except Exception:
+        return False
 
 
 @app.route("/api/save-config", methods=["POST"])
@@ -268,9 +315,27 @@ def start_render():
 
     # Apply form overrides
     tts_cfg = cfg.get("tts", {})
+
+    # Engine selection (piper | kokoro)
+    engine_val = form.get("tts_engine", "").strip().lower()
+    if engine_val in ("piper", "kokoro"):
+        tts_cfg["engine"] = engine_val
+
     for k in ["voice_model", "language", "speed", "pitch_shift", "speaker"]:
         if form.get(k):
             tts_cfg[k] = float(form[k]) if k in ("speed", "pitch_shift", "speaker") else form[k]
+
+    # Kokoro-specific overrides
+    kokoro_cfg = tts_cfg.get("kokoro", {})
+    for k in ["voice", "speed", "lang"]:
+        form_key = f"kokoro_{k}"
+        if form.get(form_key):
+            val = form[form_key]
+            if k == "speed":
+                val = float(val)
+            kokoro_cfg[k] = val
+    tts_cfg["kokoro"] = kokoro_cfg
+
     cfg["tts"] = tts_cfg
 
     sub_cfg = cfg.get("subtitle", {})
