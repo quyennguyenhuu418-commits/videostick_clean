@@ -4,7 +4,7 @@ PyYAML>=6.0.1
 # TTS local
 piper-tts>=1.2.0
 onnxruntime>=1.16.0
-kokoro-onnx>=0.6.1        # Kokoro-82M TTS (chat luong cao, Apache 2.0)
+kokoro-onnx>=0.4.7        # Kokoro-82M TTS (chat luong cao, Apache 2.0). Version 0.6+ yeu cau Python <3.14
 soundfile>=0.12            # Ghi WAV output cho Kokoro
 misaki>=0.7                # G2P tokenizer cho Kokoro v1.0
 

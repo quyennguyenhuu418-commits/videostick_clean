@@ -205,8 +205,12 @@ def _is_piper_available() -> bool:
 def _is_kokoro_available() -> bool:
     try:
         from src.tts_kokoro import is_kokoro_available
-        return is_kokoro_available()
-    except Exception:
+        # Check package AND model files
+        project_root = Path(__file__).resolve().parent.parent
+        kokoro_dir = project_root / "assets" / "kokoro"
+        return is_kokoro_available(kokoro_dir)
+    except Exception as e:
+        log.warning("Kokoro availability check failed: %s", e)
         return False
 
 
