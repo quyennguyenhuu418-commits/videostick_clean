@@ -11,6 +11,8 @@ input/images/
 assets/voices/*.onnx
 assets/voices/*.onnx.json
 assets/espeak-ng-data/
+assets/kokoro/*.onnx
+assets/kokoro/*.bin
 
 # Executables & binaries
 *.exe
@@ -23,6 +25,8 @@ assets/espeak-ng-data/
 .env.local
 *.pyc
 __pycache__/
+venv/
+.venv/
 
 # OS
 .DS_Store
