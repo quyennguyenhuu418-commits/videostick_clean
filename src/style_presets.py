@@ -70,12 +70,17 @@ def get_preset(name: str = "axen") -> StylePreset:
                     "margin_v": 60,
                 },
                 "tts": {
-                    "engine": "piper",
+                    "engine": "kokoro",
                     "language": "en",
                     "speed": 0.95,
                     "pitch_shift": -1.0,
                     "noise_scale": 0.667,
                     "length_scale": 1.0,
+                    "kokoro": {
+                        "voice": "am_adam",
+                        "speed": 0.95,
+                        "lang": "en-us",
+                    },
                 },
                 "music": {
                     "enabled": False,
@@ -84,10 +89,10 @@ def get_preset(name: str = "axen") -> StylePreset:
                     "fade_out": 4.0,
                 },
                 "timing": {
-                    "words_per_minute": 140,
-                    "min_scene_duration": 4.0,
+                    "words_per_minute": 170,
+                    "min_scene_duration": 3.0,
                     "max_scene_duration": 15.0,
-                    "silence_padding": 0.5,
+                    "silence_padding": 0.4,
                 },
             },
         ),

@@ -14,24 +14,24 @@ paths:
 
 # TTS - Piper local
 tts:
-  engine: "piper"                     # piper | kokoro (chọn engine TTS)
+  engine: "kokoro"                    # piper | kokoro (chon engine TTS)
   voice_model: "en_US-ryan-high.onnx"   # Piper voice (khi engine=piper)
                                      # Dat file .onnx + .onnx.json vao assets/voices/
   language: "en"                      # en | vi
   speaker: 0                          # Index speaker cho multi-speaker models
-  speed: 1.0                          # Tốc độ giọng đọc (1.0 = bình thường, >1 = nhanh hơn)
-  pitch_shift: -1.0                   # Hệ số pitch (-2 = trầm hơn, +2 = cao hơn) [Piper only]
+  speed: 0.95                         # Toc do giong doc (1.0 = binh thuong, >1 = nhanh hon)
+  pitch_shift: -1.0                   # He so pitch (-2 = tram hon, +2 = cao hon) [Piper only]
   sample_rate: 22050                  # Sample rate output
-  noise_scale: 0.667                  # Piper noise scale (giọng tự nhiên hơn)
+  noise_scale: 0.667                  # Piper noise scale (giong tu nhien hon)
   noise_w_scale: 0.8
   length_scale: 1.0                   # Piper length scale
 
   # Kokoro config (chi dung khi engine=kokoro)
   # Model files: assets/kokoro/kokoro-v1.0.onnx + voices-v1.0.bin
-  # Tai tu: https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX
+  # Tai tu: https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0
   kokoro:
     voice: "am_adam"                  # am_adam | am_michael | am_onyx | bm_george | bm_lewis ...
-    speed: 1.0                        # 0.5 - 2.0
+    speed: 0.95                       # 0.5 - 2.0
     lang: "en-us"                     # en-us | en-gb
 
 # Render video
@@ -94,10 +94,10 @@ music:
 
 # Timing
 timing:
-  words_per_minute: 155              # Tốc độ đọc - tăng để video ngắn hơn
-  min_scene_duration: 4.0             # Tối thiểu mỗi scene (giây)
-  max_scene_duration: 15.0            # Tối đa mỗi scene (giây)
-  silence_padding: 0.5                # Khoảng lặng giữa 2 scene (giây)
+  words_per_minute: 170              # Toc do doc - tang de video ngan hon
+  min_scene_duration: 3.0             # Toi thieu moi scene (giay)
+  max_scene_duration: 15.0            # Toi da moi scene (giay)
+  silence_padding: 0.4                # Khoang lang giua 2 scene (giay)
 
 # Logging
 logging:
