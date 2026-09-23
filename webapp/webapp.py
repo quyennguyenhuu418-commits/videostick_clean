@@ -37,6 +37,92 @@ app.config["UPLOAD_FOLDER"] = "webapp/uploads"
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
 app.config["JSON_AS_ASCII"] = False  # Giữ UTF-8 cho tieng Viet
 
+# Singleton lock cho render job, dung FILE LOCK tren disk de share
+# giua cac process webapp (threading.Lock chi hoat dong trong 1 process).
+# Neu 2 request /api/render den cung luc (hoac user bam render 2 lan lien tiep,
+# hoac co nhieu webapp instance chay ngam), job sau se bi tu choi voi HTTP 429
+# thay vi chay song song cung ghi vao temp/.
+_RENDER_LOCK_FILE = _PROJECT_ROOT_FOR_PATH / "logs" / ".render.lock"
+_RENDER_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+_RENDER_LOCK: "FileLock" = None  # type: ignore  # set below
+_RENDER_ACTIVE: Dict[str, Dict[str, Any]] = {}
+_RENDER_LOCK_MAX_AGE_SEC = 60 * 60  # 1h: tu dong don rac neu job leak
+
+
+class FileLock:
+    """File-based mutex hoat dong giua nhieu process (cross-platform)."""
+
+    def __init__(self, path: Path, max_age_sec: int = 3600):
+        self.path = path
+        self.max_age_sec = max_age_sec
+        self._held = False
+        self._payload = ""
+
+    def _is_stale(self) -> bool:
+        """Lock cu (process chet) -> tu dong don rac theo mtime."""
+        try:
+            if not self.path.exists():
+                return True
+            age = time.time() - self.path.stat().st_mtime
+            return age > self.max_age_sec
+        except OSError:
+            return True
+
+    def acquire(self, blocking: bool = False) -> bool:
+        """blocking=False: tra False ngay neu da co process giu lock."""
+        try:
+            if self._held:
+                return True
+            # Neu file lock stale (process giu da chet), xoa di de acquire lai.
+            if self.path.exists() and self._is_stale():
+                try:
+                    self.path.unlink()
+                except OSError:
+                    pass
+            # Tao file dac biet: open(O_CREAT|O_EXCL) fail neu da ton tai.
+            fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            payload = f"{os.getpid()}|{time.time()}\n".encode("utf-8")
+            os.write(fd, payload)
+            os.close(fd)
+            self._payload = payload.decode("utf-8").strip()
+            self._held = True
+            return True
+        except FileExistsError:
+            return False
+        except OSError as e:
+            log.warning("FileLock.acquire loi: %s", e)
+            return False
+
+    def release(self) -> None:
+        """Giai phong lock. An toan neu file da bi xoa boi tien trinh khac."""
+        if not self._held:
+            return
+        try:
+            if self.path.exists():
+                # Chi xoa neu van la cua minh (theo pid), tranh xoa nham.
+                try:
+                    content = self.path.read_text(encoding="utf-8").strip()
+                    if content == self._payload or content.startswith(f"{os.getpid()}|"):
+                        self.path.unlink()
+                except OSError:
+                    pass
+        finally:
+            self._held = False
+
+    def holder_pid(self) -> Optional[int]:
+        """Tra ve PID cua process dang giu lock, hoac None."""
+        try:
+            if not self.path.exists():
+                return None
+            content = self.path.read_text(encoding="utf-8").strip()
+            pid_str = content.split("|", 1)[0]
+            return int(pid_str) if pid_str.isdigit() else None
+        except (OSError, ValueError):
+            return None
+
+
+_RENDER_LOCK = FileLock(_RENDER_LOCK_FILE, max_age_sec=_RENDER_LOCK_MAX_AGE_SEC)
+
 # Custom JSON provider de dam bao UTF-8 khong bi escape
 from flask.json.provider import DefaultJSONProvider
 
@@ -82,7 +168,9 @@ def render_progress(session_id: str) -> Generator[Dict[str, Any], None, None]:
     log_file = project_root / "logs" / f"webapp_{session_id}.log"
 
     # Wait for pipeline to start writing
-    for _ in range(30):
+    # Tang tu 15s -> 60s vi pipeline parse nhieu scenes (vd 220) mat 30-60s
+    # truoc khi co log dau tien.
+    for _ in range(120):
         if log_file.exists():
             break
         time.sleep(0.5)
@@ -104,7 +192,12 @@ def render_progress(session_id: str) -> Generator[Dict[str, Any], None, None]:
         "HOAN THANH",
     ]
 
-    for _ in range(600):  # max 5 minutes
+    # Neu file chi co sentinel (chua co log pipeline that), bao "dang khoi dong"
+    startup_only_markers = ("Dang khoi dong", "Goipipeline.py subprocess")
+
+    # Pipeline TTS scene dai (~5-7s/scene), 220 scenes co the mat 30-60 phut.
+    # Tang tu 10 phut (600s) len 60 phut (3600s) de khong bi timeout som.
+    for _ in range(3600):  # max 60 minutes
         if log_file.exists():
             try:
                 text = log_file.read_text(encoding="utf-8", errors="ignore")
@@ -129,6 +222,21 @@ def render_progress(session_id: str) -> Generator[Dict[str, Any], None, None]:
                             yield {"type": "error", "message": line.strip()[-300:]}
                             return  # DONG stream
 
+                # Phan biet "dang khoi dong" vs "dang render that su"
+                has_real_progress = any(
+                    step in text for step in ("[1/6]", "[2/6]", "[3/6]", "[4/6]", "[5/6]", "[6/6]")
+                )
+
+                if not has_real_progress:
+                    # Pipeline moi bat dau, parse script...
+                    yield {
+                        "type": "progress",
+                        "percent": 1,
+                        "detail": "Dang khoi dong pipeline (parse script, load images)...",
+                    }
+                    time.sleep(1.0)
+                    continue
+
                 # Estimate progress
                 progress = 5
                 for line in lines:
@@ -152,7 +260,7 @@ def render_progress(session_id: str) -> Generator[Dict[str, Any], None, None]:
 
         time.sleep(1.0)
 
-    yield {"type": "error", "message": "Timeout: pipeline chay qua 5 phut."}
+    yield {"type": "error", "message": "Timeout: pipeline chay qua 60 phut (qua gioi han)."}
 
 
 # ---------- Routes ----------
@@ -270,7 +378,41 @@ def save_config():
 @app.route("/api/render", methods=["POST"])
 def start_render():
     """Bat dau render: copy file va goi pipeline."""
+    # ---- Singleton lock: tranh 2 job render chay song song ----
+    # Tự động dọn các job "stale" (vd. process đã chết nhưng entry còn).
+    now_ts = time.time()
+    stale_ids = [
+        sid for sid, info in _RENDER_ACTIVE.items()
+        if (now_ts - info.get("started_at", now_ts)) > _RENDER_LOCK_MAX_AGE_SEC
+    ]
+    for sid in stale_ids:
+        _RENDER_ACTIVE.pop(sid, None)
+
+    if not _RENDER_LOCK.acquire(blocking=False):
+        holder = _RENDER_LOCK.holder_pid()
+        active_id = next(iter(_RENDER_ACTIVE), None)
+        log.warning(
+            "[WEBAPP] Tu choi render moi: da co job dang chay (session_id=%s, pid=%s)",
+            active_id, holder,
+        )
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "render_busy",
+                    "message": (
+                        "Da co mot job render dang chay. Vui long doi no hoan thanh "
+                        "(hoac bam 'Huy' trong UI) truoc khi render moi."
+                    ),
+                    "active_session_id": active_id,
+                    "active_pid": holder,
+                }
+            ),
+            429,
+        )
+
     session_id = generate_session_id()
+    _RENDER_ACTIVE[session_id] = {"started_at": now_ts, "pid": None}
     project_root = Path(__file__).resolve().parent.parent
     uploads_dir = Path(app.config["UPLOAD_FOLDER"])
     uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -421,11 +563,26 @@ def start_render():
     log_file = project_root / "logs" / f"webapp_{session_id}.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # Sentinel: tao file ngay de frontend khong bao "Pipeline khong khoi dong"
+    # Truoc khi pipeline parse 220+ scenes (mat 30-60s).
+    try:
+        log_file.write_text(
+            f"[INFO] webapp: Da nhan yeu cau render (session={session_id}).\n"
+            f"[INFO] webapp: Pipeline dang khoi dong (parse script, load images)...\n",
+            encoding="utf-8",
+        )
+    except OSError as e:
+        log.warning("Khong the tao sentinel log: %s", e)
+
     def run_pipeline():
         env = os.environ.copy()
         env["PYTHONPATH"] = str(project_root)
         try:
-            result = subprocess.run(
+            with log_file.open("a", encoding="utf-8") as lf:
+                lf.write(f"[INFO] webapp: Goi pipeline.py subprocess...\n")
+                lf.flush()
+
+            proc = subprocess.Popen(
                 [sys.executable, "pipeline.py", "webapp_render.yaml", "--preset", "axen"],
                 cwd=str(project_root),
                 env=env,
@@ -433,15 +590,27 @@ def start_render():
                 stderr=subprocess.STDOUT,
                 text=True,
             )
+            _RENDER_ACTIVE[session_id]["pid"] = proc.pid
+            result_stdout, _ = proc.communicate()
+            result_returncode = proc.returncode
+
             with log_file.open("a", encoding="utf-8") as lf:
-                lf.write(result.stdout)
-                if result.returncode != 0:
-                    lf.write(f"\n[LOI] Exit code: {result.returncode}\n")
+                lf.write(result_stdout)
+                if result_returncode != 0:
+                    lf.write(f"\n[LOI] Exit code: {result_returncode}\n")
                 else:
                     lf.write("\nHOAN THANH\n")
         except Exception as e:
             with log_file.open("a", encoding="utf-8") as lf:
                 lf.write(f"\n[LOI] Exception: {e}\n")
+        finally:
+            # Luon giai phong singleton lock + don entry
+            _RENDER_ACTIVE.pop(session_id, None)
+            try:
+                _RENDER_LOCK.release()
+            except Exception:
+                # FileLock.release() khong nen exception, nhung an toan.
+                pass
 
     thread = threading.Thread(target=run_pipeline, daemon=True)
     thread.start()
@@ -529,6 +698,44 @@ def cleanup():
                 pass
 
     return jsonify({"ok": True, "cleaned": count})
+
+
+@app.route("/api/cancel/<session_id>", methods=["POST"])
+def cancel_render(session_id: str):
+    """Huy mot job render dang chay (neu co)."""
+    info = _RENDER_ACTIVE.get(session_id)
+    if not info:
+        return jsonify({"ok": False, "error": "not_active", "session_id": session_id}), 404
+
+    pid = info.get("pid")
+    killed = False
+    if pid:
+        try:
+            import psutil  # type: ignore
+            p = psutil.Process(pid)
+            # Kill con + chau
+            for child in p.children(recursive=True):
+                try:
+                    child.kill()
+                except psutil.Error:
+                    pass
+            p.kill()
+            killed = True
+        except ImportError:
+            # psutil khong co -> dung taskkill cua Windows
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    timeout=10,
+                )
+                killed = True
+            except Exception:
+                killed = False
+        except Exception:
+            killed = False
+
+    return jsonify({"ok": True, "killed": killed, "session_id": session_id})
 
 
 @app.route("/api/ping", methods=["GET"])
