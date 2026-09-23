@@ -792,6 +792,19 @@ function setShortsRenderStatus(msg, kind = "info") {
   el.textContent = msg;
 }
 
+function setShortsProgress(done, total, percent) {
+  const wrap = document.getElementById("shortsProgress");
+  const bar = document.getElementById("shortsProgressBar");
+  const text = document.getElementById("shortsProgressText");
+  if (!total || total <= 0) {
+    wrap.style.display = "none";
+    return;
+  }
+  wrap.style.display = "block";
+  bar.style.width = Math.max(0, Math.min(100, percent || 0)) + "%";
+  text.textContent = `${done}/${total} short (${Math.round(percent || 0)}%)`;
+}
+
 function fmtTime(sec) {
   sec = Math.max(0, sec);
   const m = Math.floor(sec / 60);
@@ -899,7 +912,8 @@ async function renderShorts(auto) {
   state.shorts.rendering = true;
   document.getElementById("renderSelectedShortsBtn").disabled = true;
   document.getElementById("renderAutoShortsBtn").disabled = true;
-  setShortsRenderStatus(`Dang cat ${auto ? numAuto + " short (auto)" : selections.length + " short"}...`, "info");
+  setShortsProgress(0, auto ? numAuto : selections.length, 0);
+  setShortsRenderStatus(`Bat dau cat ${auto ? numAuto + " short (auto)" : selections.length + " short"}...`, "info");
 
   try {
     const result = await api("/api/shorts/render", {
@@ -916,18 +930,51 @@ async function renderShorts(auto) {
     });
     if (!result.ok) {
       setShortsRenderStatus("Loi: " + (result.error || "unknown"), "error");
+      setShortsProgress(0, 0, 0);
       return;
     }
-    const ok_count = result.shorts.filter(s => s.success).length;
-    const err_count = result.shorts.length - ok_count;
+    const sid = result.session_id;
+
+    // Poll progress via SSE
+    const finalResults = await new Promise((resolve, reject) => {
+      const es = new EventSource(`/api/shorts/progress/${sid}`);
+      es.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          setShortsProgress(data.done, data.total, data.percent);
+          if (data.message) {
+            setShortsRenderStatus(data.message, data.error ? "error" : "info");
+          }
+          if (data.done_flag) {
+            es.close();
+            if (data.error) {
+              reject(new Error(data.error));
+            } else {
+              resolve(data.results || []);
+            }
+          }
+        } catch (err) {
+          es.close();
+          reject(err);
+        }
+      };
+      es.onerror = () => {
+        es.close();
+        reject(new Error("Mat ket noi SSE"));
+      };
+    });
+
+    const ok_count = finalResults.filter(s => s.success).length;
+    const err_count = finalResults.length - ok_count;
     setShortsRenderStatus(
-      `Hoan tat! ${ok_count}/${result.shorts.length} short OK${err_count ? `, ${err_count} loi` : ""}.`,
+      `Hoan tat! ${ok_count}/${finalResults.length} short OK${err_count ? `, ${err_count} loi` : ""}.`,
       err_count ? "error" : "success"
     );
-    state.shorts.lastResults = result.shorts;
+    state.shorts.lastResults = finalResults;
     loadShortsOutputs();
   } catch (e) {
     setShortsRenderStatus("Loi: " + e.message, "error");
+    setShortsProgress(0, 0, 0);
   } finally {
     state.shorts.rendering = false;
     document.getElementById("renderSelectedShortsBtn").disabled = false;

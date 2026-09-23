@@ -520,6 +520,7 @@ def cut_shorts(
     burn_subtitle: bool = True,
     font: str = "Inter",
     font_size: int = 64,
+    progress_callback=None,  # Callable[[int, int, str, float], None] = (done, total, msg, pct)
 ) -> List[ShortRenderResult]:
     """Cat 1 hoac nhieu short tu video dai.
 
@@ -534,6 +535,7 @@ def cut_shorts(
         crf, preset: Encode params.
         burn_subtitle: Co burn subtitle khong.
         font, font_size: Font cho subtitle.
+        progress_callback: Callback(current, total, message, percent). Neu None -> khong bao progress.
 
     Returns:
         List ShortRenderResult (co output_path, success, error).
@@ -589,8 +591,12 @@ def cut_shorts(
         )]
 
     results: List[ShortRenderResult] = []
+    total = len(targets)
 
     for idx, (start, end) in enumerate(targets, start=1):
+        if progress_callback:
+            progress_callback(idx - 1, total, f"Dang xu ly short {idx}/{total}...", 0)
+
         # Tao suggestion dummy cho result
         seg_cues = [c for c in cues if c.start >= start - 0.5 and c.end <= end + 0.5]
         if not seg_cues:
@@ -606,6 +612,9 @@ def cut_shorts(
         # Build subtitle ASS (re-time tu 0, khop start segment)
         ass_file = None
         if burn_subtitle and seg_cues:
+            if progress_callback:
+                progress_callback(idx - 1, total, f"Dang build subtitle short {idx}/{total}...", 20)
+
             # Re-time cues de start cua segment = 0
             rebased = [
                 SubtitleCue(
@@ -631,6 +640,10 @@ def cut_shorts(
         if output_file.exists():
             ts = _dt.datetime.now().strftime("%H%M%S")
             output_file = output_dir / f"short_{idx:02d}_{ts}.mp4"
+
+        if progress_callback:
+            progress_callback(idx - 1, total, f"Dang cat video short {idx}/{total}...", 50)
+
         try:
             reframe_to_vertical(
                 video_path=video_path,
@@ -643,6 +656,10 @@ def cut_shorts(
                 crf=crf,
                 preset=preset,
             )
+
+            if progress_callback:
+                progress_callback(idx, total, f"Hoan thanh short {idx}/{total}", 100)
+
             results.append(ShortRenderResult(
                 output_path=output_file,
                 suggestion=sug,
@@ -656,6 +673,8 @@ def cut_shorts(
                 success=False,
                 error=str(e),
             ))
+            if progress_callback:
+                progress_callback(idx, total, f"Loi short {idx}/{total}: {e}", 100)
         finally:
             # Don dep ASS
             if ass_file and ass_file.exists():
@@ -663,5 +682,8 @@ def cut_shorts(
                     ass_file.unlink()
                 except OSError:
                     pass
+
+    if progress_callback:
+        progress_callback(total, total, "Hoan tat!", 100)
 
     return results

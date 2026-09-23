@@ -1,0 +1,81 @@
+paths:
+  input_images: webapp\uploads\images
+  input_script: webapp\uploads\script.txt
+  output_dir: D:\videostick\output
+  temp_dir: D:\videostick\temp
+  logs_dir: D:\videostick\logs
+  music_dir: D:\videostick\assets\music
+tts:
+  engine: kokoro
+  voice_model: .onnx
+  voices: assets/voices/voices-v1.0.bin
+  language: en
+  speaker: am_onyx
+  speed: 0.95
+  pitch_shift: -1
+  sample_rate: 24000
+  kokoro:
+    voice: am_adam
+    speed: 0.95
+    lang: en-us
+render:
+  width: 1920
+  height: 1080
+  fps: 30
+  video_codec: libx264
+  preset: slow
+  crf: 20
+  pixel_format: yuv420p
+  audio_codec: aac
+  audio_bitrate: 192k
+ken_burns:
+  enabled: true
+  zoom_min: 1.0
+  zoom_max: 1.15
+  zoom_step: 0.0015
+  directions:
+  - zoom_in
+  - zoom_out
+  - pan_left
+  - pan_right
+  - pan_up
+  - pan_down
+subtitle:
+  enabled: false
+  burn_in: false
+  font: assets/fonts/Inter-Bold.ttf
+  font_size: 48
+  font_color: '&H00FFFFFF'
+  outline_color: '&H00000000'
+  outline_thickness: 2
+  position: bottom
+  margin_v: 60
+color_grading:
+  enabled: true
+  contrast: 1.05
+  saturation: 0.9
+  brightness: 0.0
+  gamma: 1.0
+  warm_tone: 0.05
+  vignette:
+    enabled: true
+    intensity: 0.15
+music:
+  enabled: false
+  file: ''
+  volume: 0.18
+  fade_in: 3.0
+  fade_out: 5.0
+timing:
+  words_per_minute: 171
+  min_scene_duration: 3
+  max_scene_duration: 15
+  silence_padding: 0.4
+logging:
+  level: INFO
+  file: logs/pipeline.log
+  console: true
+ffmpeg:
+  binary: ''
+  ffprobe_binary: ''
+active_preset: axen

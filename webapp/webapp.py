@@ -48,6 +48,11 @@ _RENDER_LOCK: "FileLock" = None  # type: ignore  # set below
 _RENDER_ACTIVE: Dict[str, Dict[str, Any]] = {}
 _RENDER_LOCK_MAX_AGE_SEC = 60 * 60  # 1h: tu dong don rac neu job leak
 
+# Shorts progress tracking (in-memory): session_id -> {"done": int, "total": int,
+# "message": str, "percent": float, "done_flag": bool, "error": Optional[str],
+# "results": List[...]}
+_SHORTS_PROGRESS: Dict[str, Dict[str, Any]] = {}
+
 
 class FileLock:
     """File-based mutex hoat dong giua nhieu process (cross-platform)."""
@@ -819,7 +824,13 @@ def shorts_analyze():
 
 @app.route("/api/shorts/render", methods=["POST"])
 def shorts_render():
-    """Cat video thanh 1 hoac nhieu short (9:16 <= 60s) cho YouTube Shorts."""
+    """Cat video thanh 1 hoac nhieu short (9:16 <= 60s) cho YouTube Shorts.
+
+    Chạy async trong thread để trả session_id ngay. Frontend poll
+    /api/shorts/progress/<sid> (SSE) để lấy progress events.
+    """
+    import uuid as _uuid
+
     data = request.get_json() or {}
     video_name = data.get("video", "").strip()
     selections = data.get("selections") or []
@@ -857,54 +868,137 @@ def shorts_render():
     shorts_dir = project_root / "output" / "shorts"
     shorts_dir.mkdir(parents=True, exist_ok=True)
 
-    try:
-        from src.shorts_maker import cut_shorts
-        results = cut_shorts(
-            video_path=video_path,
-            srt_path=srt_path,
-            output_dir=shorts_dir,
-            selections=clean_selections if not auto else None,
-            auto_generate=auto,
-            num_auto=num_auto,
-            crf=crf,
-            preset=preset,
-            burn_subtitle=burn_subtitle,
-            font="Inter",
-            font_size=64,
-        )
-    except Exception as e:
-        log.exception("Shorts render failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
+    session_id = _uuid.uuid4().hex[:12]
+    _SHORTS_PROGRESS[session_id] = {
+        "done": 0,
+        "total": 0,
+        "message": "Khoi dong...",
+        "percent": 0,
+        "done_flag": False,
+        "error": None,
+        "results": [],
+    }
 
-    out_list = []
-    for r in results:
-        size = 0
-        if r.output_path.exists():
-            size = r.output_path.stat().st_size
-        duration = r.suggestion.duration
-        if r.success:
-            try:
-                import subprocess
-                prb = subprocess.run(
-                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                     "-of", "csv=p=0", str(r.output_path)],
-                    capture_output=True, text=True, encoding="utf-8", errors="ignore",
+    def _progress_cb(done: int, total: int, msg: str, pct: float):
+        info = _SHORTS_PROGRESS.get(session_id)
+        if not info:
+            return
+        info["done"] = done
+        info["total"] = total
+        info["message"] = msg
+        info["percent"] = pct
+
+    def _run():
+        try:
+            from src.shorts_maker import cut_shorts
+            results = cut_shorts(
+                video_path=video_path,
+                srt_path=srt_path,
+                output_dir=shorts_dir,
+                selections=clean_selections if not auto else None,
+                auto_generate=auto,
+                num_auto=num_auto,
+                crf=crf,
+                preset=preset,
+                burn_subtitle=burn_subtitle,
+                font="Inter",
+                font_size=64,
+                progress_callback=_progress_cb,
+            )
+
+            out_list = []
+            for r in results:
+                size = 0
+                if r.output_path.exists():
+                    size = r.output_path.stat().st_size
+                duration = r.suggestion.duration
+                if r.success:
+                    try:
+                        import subprocess
+                        prb = subprocess.run(
+                            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                             "-of", "csv=p=0", str(r.output_path)],
+                            capture_output=True, text=True, encoding="utf-8", errors="ignore",
+                        )
+                        duration = float(prb.stdout.strip() or duration)
+                    except Exception:
+                        pass
+                out_list.append({
+                    "filename": r.output_path.name,
+                    "path": str(r.output_path),
+                    "size": size,
+                    "duration": duration,
+                    "start": r.suggestion.start,
+                    "end": r.suggestion.end,
+                    "success": r.success,
+                    "error": r.error,
+                })
+
+            info = _SHORTS_PROGRESS.get(session_id)
+            if info:
+                info["results"] = out_list
+                info["done_flag"] = True
+                info["message"] = (
+                    f"Hoan tat! {sum(1 for x in out_list if x['success'])}/{len(out_list)} short OK."
                 )
-                duration = float(prb.stdout.strip() or duration)
-            except Exception:
-                pass
-        out_list.append({
-            "filename": r.output_path.name,
-            "path": str(r.output_path),
-            "size": size,
-            "duration": duration,
-            "start": r.suggestion.start,
-            "end": r.suggestion.end,
-            "success": r.success,
-            "error": r.error,
-        })
+                info["percent"] = 100
+        except Exception as e:
+            log.exception("Shorts render failed")
+            info = _SHORTS_PROGRESS.get(session_id)
+            if info:
+                info["error"] = str(e)
+                info["done_flag"] = True
+                info["message"] = f"Loi: {e}"
 
-    return jsonify({"ok": True, "shorts": out_list})
+    import threading as _threading
+    thread = _threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    return jsonify({"ok": True, "session_id": session_id})
+
+
+@app.route("/api/shorts/progress/<session_id>", methods=["GET"])
+def shorts_progress(session_id: str):
+    """Server-Sent Events stream cho Shorts render progress."""
+    import json as _json
+
+    info = _SHORTS_PROGRESS.get(session_id)
+    if not info:
+        # Co the session da xoa (qua 30 phut) -> bao done ngay
+        return jsonify({"ok": False, "error": "unknown session"}), 404
+
+    def generate():
+        last_payload = None
+        import time as _time
+        deadline = _time.time() + 60 * 60  # 1h max stream
+        while _time.time() < deadline:
+            cur = _SHORTS_PROGRESS.get(session_id)
+            if not cur:
+                yield "data: " + _json.dumps({
+                    "done": 0, "total": 0, "message": "Session expired",
+                    "percent": 100, "done_flag": True, "error": "expired",
+                }, ensure_ascii=False) + "\n\n"
+                break
+            payload = {
+                "done": cur["done"],
+                "total": cur["total"],
+                "message": cur["message"],
+                "percent": cur["percent"],
+                "done_flag": cur["done_flag"],
+                "error": cur["error"],
+            }
+            if cur["done_flag"]:
+                # Include final results
+                payload["results"] = cur.get("results", [])
+                yield "data: " + _json.dumps(payload, ensure_ascii=False) + "\n\n"
+                break
+            if payload != last_payload:
+                yield "data: " + _json.dumps(payload, ensure_ascii=False) + "\n\n"
+                last_payload = payload
+            _time.sleep(0.3)
+
+    from flask import Response
+    return Response(generate(), mimetype="text/event-stream")
 
 
 def _safe_short_filename(filename: str):
